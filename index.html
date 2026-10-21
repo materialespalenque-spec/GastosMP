@@ -1,0 +1,971 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f5fbf">
+<title>Gastos MP</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<style>
+  :root{
+    --azul:#1f5fbf; --azul-claro:#e8f0fc; --texto:#1d2330; --gris:#6b7280; --borde:#e2e6ee;
+    --fondo:#f4f6fa; --blanco:#fff; --verde:#1a8a4a; --verde-claro:#e5f4ea; --rojo:#c0392b; --rojo-claro:#fbeaea;
+    --ambar:#b7791f; --ambar-claro:#fdf3dc; --radio:12px;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;background:var(--fondo);color:var(--texto);font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;font-size:16px}
+  button,input,select,textarea{font:inherit;color:inherit}
+  .oculto{display:none!important}
+  /* Login */
+  #pantallaLogin,#pantallaSinPerfil{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+  .tarjetaLogin{background:var(--blanco);border-radius:16px;padding:28px 22px;width:100%;max-width:380px;box-shadow:0 4px 24px rgba(0,0,0,.06)}
+  .marca{font-size:26px;font-weight:800;color:var(--azul);margin:0 0 4px}
+  .sub{color:var(--gris);margin:0 0 22px;font-size:14px}
+  /* Layout app */
+  header{position:sticky;top:0;z-index:5;background:var(--azul);color:#fff;padding:calc(env(safe-area-inset-top) + 10px) 16px 10px;display:flex;align-items:center;gap:10px}
+  header h1{font-size:18px;margin:0;flex:1}
+  #btnCuenta{background:rgba(255,255,255,.16);border:0;color:#fff;border-radius:20px;padding:6px 12px;font-size:14px;max-width:55%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #estadoConexion{width:10px;height:10px;border-radius:50%;background:#7CFC9A;flex:none}
+  #estadoConexion.offline{background:#ffb74d}
+  main{padding:14px 14px calc(90px + env(safe-area-inset-bottom));max-width:720px;margin:0 auto}
+  nav{position:fixed;bottom:0;left:0;right:0;background:var(--blanco);border-top:1px solid var(--borde);display:flex;padding-bottom:env(safe-area-inset-bottom);z-index:5}
+  nav button{flex:1;border:0;background:none;padding:10px 4px 9px;font-size:12px;color:var(--gris);display:flex;flex-direction:column;align-items:center;gap:2px}
+  nav button .ico{font-size:20px;line-height:1}
+  nav button.activo{color:var(--azul);font-weight:700}
+  /* Componentes */
+  .tarjeta{background:var(--blanco);border-radius:var(--radio);padding:14px;margin-bottom:12px;border:1px solid var(--borde)}
+  .titulo{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--gris);margin:4px 2px 8px}
+  label{display:block;font-size:13px;font-weight:600;color:var(--gris);margin:12px 0 6px}
+  input,select,textarea{width:100%;padding:12px;border:1px solid var(--borde);border-radius:10px;background:#fff;font-size:16px}
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--azul);border-color:transparent}
+  textarea{resize:vertical;min-height:52px}
+  .monto{font-size:28px;font-weight:700;text-align:right}
+  .fila{display:flex;gap:10px}.fila>*{flex:1;min-width:0}
+  .btn{display:block;width:100%;border:0;border-radius:12px;padding:14px;font-weight:700;font-size:16px;background:var(--azul);color:#fff;margin-top:14px}
+  .btn:disabled{opacity:.5}
+  .btn.sec{background:var(--azul-claro);color:var(--azul)}
+  .btn.peligro{background:var(--rojo-claro);color:var(--rojo)}
+  .btn.verde{background:var(--verde);color:#fff}
+  .btn.chico{display:inline-block;width:auto;padding:9px 14px;font-size:14px;margin-top:0}
+  .rejilla{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+  @media(min-width:520px){.rejilla{grid-template-columns:repeat(3,1fr)}}
+  .opcion{border:1.5px solid var(--borde);background:#fff;border-radius:12px;padding:12px 8px;min-height:58px;font-size:14px;font-weight:600;text-align:center;line-height:1.2}
+  .opcion.sel{border-color:var(--azul);background:var(--azul-claro);color:var(--azul)}
+  .grupoTitulo{grid-column:1/-1;font-size:12px;font-weight:700;color:var(--gris);text-transform:uppercase;margin-top:6px}
+  .segmento{display:flex;border:1px solid var(--borde);border-radius:10px;overflow:hidden}
+  .segmento button{flex:1;border:0;background:#fff;padding:11px;font-weight:600}
+  .segmento button.sel{background:var(--azul);color:#fff}
+  .error{color:var(--rojo);font-size:14px;margin-top:10px;min-height:1em}
+  .aviso{background:var(--ambar-claro);color:#7a5210;border-radius:10px;padding:10px 12px;font-size:14px;margin-bottom:12px}
+  .editando{background:var(--azul-claro);color:var(--azul);border-radius:10px;padding:10px 12px;font-size:14px;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+  .editando span{flex:1}
+  /* Listas */
+  .item{background:var(--blanco);border:1px solid var(--borde);border-radius:var(--radio);padding:12px;margin-bottom:8px;display:flex;gap:10px;align-items:flex-start}
+  .item .cuerpo{flex:1;min-width:0}
+  .item .linea1{display:flex;justify-content:space-between;gap:8px;font-weight:700}
+  .item .linea1 .imp{white-space:nowrap}
+  .item .linea2{color:var(--gris);font-size:13px;margin-top:3px;overflow-wrap:anywhere}
+  .item .linea3{font-size:13px;margin-top:4px;overflow-wrap:anywhere}
+  .chip{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;margin-right:4px;vertical-align:middle}
+  .chip.pendiente{background:var(--ambar-claro);color:var(--ambar)}
+  .chip.aprobado{background:var(--verde-claro);color:var(--verde)}
+  .chip.rechazado{background:var(--rojo-claro);color:var(--rojo)}
+  .chip.gris{background:#eef0f4;color:var(--gris)}
+  .chip.subir{background:#e9e3fb;color:#5b3fb5}
+  .resumen{display:flex;justify-content:space-between;align-items:baseline;margin:2px 2px 10px;color:var(--gris);font-size:14px}
+  .resumen b{color:var(--texto);font-size:20px}
+  .filtros{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+  .filtros select,.filtros input{padding:9px;font-size:14px}
+  table.tabla{width:100%;border-collapse:collapse;font-size:14px}
+  table.tabla td{padding:7px 2px;border-bottom:1px solid var(--borde)}
+  table.tabla td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+  table.tabla tr.total td{font-weight:700;border-bottom:0}
+  .kpis{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+  .kpi{background:var(--blanco);border:1px solid var(--borde);border-radius:var(--radio);padding:12px}
+  .kpi .et{font-size:12px;color:var(--gris);font-weight:600}
+  .kpi .v{font-size:22px;font-weight:800;margin-top:4px;font-variant-numeric:tabular-nums}
+  .kpi.alerta{border-color:#f0c36d;background:var(--ambar-claro)}
+  .menu .item{align-items:center;cursor:pointer}
+  .menu .item .ico{font-size:22px}
+  .vacio{text-align:center;color:var(--gris);padding:30px 10px;font-size:14px}
+  .orden{display:flex;flex-direction:column;gap:4px}
+  .orden button{border:1px solid var(--borde);background:#fff;border-radius:8px;width:34px;height:30px}
+  /* Modal */
+  #fondoModal{position:fixed;inset:0;background:rgba(15,20,30,.45);z-index:20;display:flex;align-items:flex-end;justify-content:center}
+  #modal{background:var(--blanco);width:100%;max-width:560px;max-height:92vh;overflow:auto;border-radius:18px 18px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom))}
+  @media(min-width:600px){#fondoModal{align-items:center}#modal{border-radius:18px}}
+  #modal h2{margin:0 0 6px;font-size:19px}
+  .det{font-size:15px}.det div{padding:6px 0;border-bottom:1px solid var(--borde);display:flex;justify-content:space-between;gap:12px}
+  .det div span:first-child{color:var(--gris)} .det div span:last-child{text-align:right;overflow-wrap:anywhere}
+  #toast{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#1d2330;color:#fff;padding:11px 18px;border-radius:24px;font-size:14px;z-index:30;max-width:90%;text-align:center;box-shadow:0 4px 18px rgba(0,0,0,.2)}
+  .codigo{font-family:ui-monospace,Menlo,Consolas,monospace;background:#f1f3f7;border-radius:8px;padding:10px;font-size:13px;overflow-wrap:anywhere;user-select:all}
+  .check{display:flex;align-items:center;gap:10px;margin-top:12px;font-weight:600;font-size:15px;color:var(--texto)}
+  .check input{width:22px;height:22px}
+</style>
+</head>
+<body>
+
+<section id="pantallaCargando" style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:#6b7280">Cargando Gastos MP…</section>
+
+<!-- ============ LOGIN ============ -->
+<section id="pantallaLogin" class="oculto">
+  <form class="tarjetaLogin" id="formLogin" autocomplete="on">
+    <p class="marca">Gastos MP</p>
+    <p class="sub">Materiales Palenque · registro de gastos</p>
+    <label for="loginUsuario">Usuario</label>
+    <input id="loginUsuario" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required>
+    <label for="loginClave">Contraseña</label>
+    <input id="loginClave" type="password" autocomplete="current-password" required>
+    <label class="check"><input type="checkbox" id="verClave"> Mostrar contraseña</label>
+    <button class="btn" id="btnEntrar" type="submit">Entrar</button>
+    <div class="error" id="errorLogin"></div>
+  </form>
+</section>
+
+<!-- ============ SIN PERFIL ============ -->
+<section id="pantallaSinPerfil" class="oculto">
+  <div class="tarjetaLogin">
+    <p class="marca">Gastos MP</p>
+    <p id="sinPerfilMsg">Tu cuenta todavía no está dada de alta en Gastos MP. Pídele al dueño que te dé acceso.</p>
+    <p class="sub" style="margin:14px 0 6px">Si eres el dueño y es la primera vez, en la consola de Firebase crea el documento
+      <b>gastos_usuarios / (este código)</b> con los campos <b>nombre</b>, <b>rol = "dueno"</b>, <b>activo = true</b>:</p>
+    <div class="codigo" id="uidSinPerfil"></div>
+    <button class="btn sec" id="btnCopiarUid" type="button">Copiar código</button>
+    <button class="btn peligro" id="btnSalirSinPerfil" type="button">Cerrar sesión</button>
+  </div>
+</section>
+
+<!-- ============ APP ============ -->
+<div id="app" class="oculto">
+  <header>
+    <span id="estadoConexion" title="Conexión"></span>
+    <h1>Gastos MP</h1>
+    <button id="btnCuenta" type="button"></button>
+  </header>
+  <main id="contenido"></main>
+  <nav id="nav"></nav>
+</div>
+
+<div id="fondoModal" class="oculto"><div id="modal"></div></div>
+<div id="toast" class="oculto"></div>
+
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<script>
+/* =====================================================================
+   CONFIGURACIÓN DE FIREBASE
+   Pega aquí el MISMO firebaseConfig que usa tu Agenda de Créditos
+   (proyecto creditosmp). Lo encuentras en el index.html de CreditosAgenda
+   o en la consola de Firebase → Configuración del proyecto → Tus apps.
+   ===================================================================== */
+const firebaseConfig = {
+  apiKey: "AIzaSyBYTczMWjKRl5qxAkq9riMhG-wr4XbrmnA",
+  authDomain: "creditosmp.firebaseapp.com",
+  projectId: "creditosmp",
+  storageBucket: "creditosmp.firebasestorage.app",
+  messagingSenderId: "275450861884",
+  appId: "1:275450861884:web:00b38ecff8970d573ba639"
+};
+
+const VERSION = '1.0.0';
+const DOMINIO_USUARIOS = 'gastosmp.app';   // usuario "manuel" → manuel@gastosmp.app (interno)
+const COL = { usuarios:'gastos_usuarios', catalogo:'gastos_catalogo', registros:'gastos_registros', config:'gastos_config' };
+const GRUPOS = ['Operación','Financiero','Impuestos','Dueño','Activos','Entrada extra'];
+const FORMAS_PAGO_INICIALES = ['Efectivo caja','Transferencia','Tarjeta de crédito','Tarjeta de débito'];
+const SUCURSALES_INICIALES = ['Periférico','Libertad','General'];
+
+/* Catálogo inicial: mismos nombres que la hoja CATALOGO del Excel */
+const CATALOGO_INICIAL = [
+  ['Nómina y sueldos','Operación','dueno',false,'Sueldos semanales/quincenales, bonos, horas extra'],
+  ['IMSS e Infonavit','Operación','dueno',false,'Cuotas obrero-patronales'],
+  ['Aguinaldo, vacaciones y finiquitos','Operación','dueno',false,'Aguinaldo de diciembre, liquidaciones'],
+  ['Rentas','Operación','dueno',false,'Local Periférico, Libertad, bodega'],
+  ['Luz (CFE) del negocio','Operación','dueno',false,'Solo recibos de locales y bodega'],
+  ['Internet y teléfono','Operación','dueno',false,'Internet, recargas de celulares del negocio'],
+  ['Combustible','Operación','encargado',true,'Cada carga de diésel/gasolina de reparto'],
+  ['Taller y refacciones de vehículos','Operación','encargado',true,'Mecánico, llantas, aceite, refacciones, verificación'],
+  ['Reparaciones y mantenimiento del local','Operación','encargado',false,'Plomero, electricista, pintura, cerrajería'],
+  ['Papelería, limpieza y consumibles','Operación','encargado',false,'Rollos de ticket, garrafones, escobas, bolsas, plumas'],
+  ['Fletes, maniobras y viáticos','Operación','encargado',false,'Cargadores, fletes externos, comidas en ruta'],
+  ['Comisiones bancarias y de terminal','Operación','dueno',false,'Comisión Mercado Pago/banco del estado de cuenta'],
+  ['Contador y trámites','Operación','dueno',false,'Honorarios contables, permisos, licencias'],
+  ['Sistemas y software','Operación','dueno',false,'SICAR, dominios, apps, equipo menor de cómputo'],
+  ['Publicidad','Operación','dueno',false,'Volantes, lonas, anuncios en redes'],
+  ['Otros gastos de operación','Operación','encargado',false,'Lo que no quepa arriba (describir bien)'],
+  ['Intereses y comisiones de créditos','Financiero','dueno',false,'Intereses de tarjetas y préstamos (no el abono a capital)'],
+  ['Impuestos pagados (IVA, ISR)','Impuestos','dueno',false,'Pagos al SAT'],
+  ['Retiros del dueño','Dueño','dueno',false,'Todo efectivo/transferencia que sale para tu bolsa'],
+  ['Gastos personales pagados por el negocio','Dueño','dueno',false,'CFE de casa/cabaña, súper, colegiaturas, etc.'],
+  ['Compra de vehículos y equipo','Activos','dueno',false,'Camiones, montacargas, anaqueles, básculas'],
+  ['Venta de activos','Entrada extra','dueno',false,'Pagos recibidos por la venta del camión'],
+  ['Aportación del dueño','Entrada extra','dueno',false,'Dinero tuyo personal que metes al negocio'],
+  ['Otros ingresos que no son ventas','Entrada extra','dueno',false,'Rentas cobradas, reembolsos'],
+];
+const UNIDADES_INICIALES = [
+  {chofer:'Manuel M2', vehiculo:'Nissan'},
+  {chofer:'Eduardo Kiro', vehiculo:'3 Ton'},
+  {chofer:'Adrian', vehiculo:'Volteo'},
+];
+
+/* ================= Firebase ================= */
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+db.enablePersistence({synchronizeTabs:true}).catch(()=>{ /* otra pestaña o navegador sin soporte: sigue en línea */ });
+const TS = () => firebase.firestore.FieldValue.serverTimestamp();
+const esNativo = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+
+/* ================= Estado ================= */
+const S = {
+  user:null, perfil:null, catalogo:[], config:{sucursales:SUCURSALES_INICIALES, formasPago:FORMAS_PAGO_INICIALES, unidades:[]},
+  usuarios:[], registros:[], pendientesSubir:0, mesSel:mesDe(hoy()), pantalla:null,
+  filtros:{sucursal:'', concepto:'', estado:'', creadoPor:''},
+  form:null, listeners:[], listenerRegistros:null, catalogoListo:false,
+};
+
+/* ================= Utilidades ================= */
+function hoy(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function mesDe(f){ return f.slice(0,7); }
+const MESES=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+function nombreMes(m){ const [y,mm]=m.split('-'); return `${MESES[+mm-1]} ${y}`; }
+function fechaCorta(f){ const [y,m,d]=f.split('-'); return `${d}/${m}/${y}`; }
+const fmt = new Intl.NumberFormat('es-MX',{style:'currency',currency:'MXN'});
+function $$(n){ return fmt.format(n||0); }
+function esc(s){ return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function el(id){ return document.getElementById(id); }
+function toEmail(u){ u=(u||'').trim().toLowerCase(); return u.includes('@') ? u : `${u}@${DOMINIO_USUARIOS}`; }
+function usuarioDeEmail(e){ return (e||'').endsWith('@'+DOMINIO_USUARIOS) ? e.split('@')[0] : e; }
+function esDueno(){ return S.perfil && S.perfil.rol==='dueno'; }
+function uid(){ return Math.random().toString(36).slice(2,10); }
+function nombreUnidad(u){ return u ? `${u.chofer} - ${u.vehiculo}` : ''; }
+let toastT=null;
+function toast(msg, ms=2600){ const t=el('toast'); t.textContent=msg; t.classList.remove('oculto'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.add('oculto'),ms); }
+function errorTexto(e){
+  const c=e && e.code || '';
+  if(c.includes('permission-denied')) return 'No tienes permiso para esta acción.';
+  if(c.includes('invalid-credential')||c.includes('wrong-password')||c.includes('user-not-found')||c.includes('invalid-login')) return 'Usuario o contraseña incorrectos.';
+  if(c.includes('too-many-requests')) return 'Demasiados intentos. Espera unos minutos.';
+  if(c.includes('network')) return 'Sin conexión a internet.';
+  if(c.includes('email-already-in-use')) return 'Ese usuario ya existe.';
+  if(c.includes('weak-password')) return 'La contraseña debe tener al menos 6 caracteres.';
+  if(c.includes('invalid-email')) return 'Usuario no válido: usa solo letras, números, punto o guion.';
+  return (e && e.message) || 'Error desconocido';
+}
+function catalogoOrdenado(){ const gi=g=>{const i=GRUPOS.indexOf(g);return i<0?99:i;}; return [...S.catalogo].sort((a,b)=>gi(a.grupo)-gi(b.grupo)||(a.orden||0)-(b.orden||0)); }
+function conceptoPorId(id){ return S.catalogo.find(c=>c.id===id); }
+function unidadPorId(id){ return (S.config.unidades||[]).find(u=>u.id===id); }
+
+/* ================= Modal ================= */
+function abrirModal(html){ el('modal').innerHTML=html; el('fondoModal').classList.remove('oculto'); }
+function cerrarModal(){ el('fondoModal').classList.add('oculto'); el('modal').innerHTML=''; }
+el('fondoModal').addEventListener('click',e=>{ if(e.target.id==='fondoModal') cerrarModal(); });
+function confirmar(titulo, texto, textoBtn, clase='peligro'){
+  return new Promise(res=>{
+    abrirModal(`<h2>${esc(titulo)}</h2><p>${esc(texto)}</p>
+      <div class="fila"><button class="btn sec" id="mNo">Cancelar</button><button class="btn ${clase}" id="mSi">${esc(textoBtn)}</button></div>`);
+    el('mNo').onclick=()=>{cerrarModal();res(false);};
+    el('mSi').onclick=()=>{cerrarModal();res(true);};
+  });
+}
+
+/* ================= Login ================= */
+el('verClave').onchange=e=>{ el('loginClave').type=e.target.checked?'text':'password'; };
+el('formLogin').addEventListener('submit', async e=>{
+  e.preventDefault();
+  el('errorLogin').textContent=''; el('btnEntrar').disabled=true;
+  try{ await auth.signInWithEmailAndPassword(toEmail(el('loginUsuario').value), el('loginClave').value); }
+  catch(err){ el('errorLogin').textContent=errorTexto(err); }
+  el('btnEntrar').disabled=false;
+});
+el('btnSalirSinPerfil').onclick=()=>auth.signOut();
+el('btnCopiarUid').onclick=()=>{ copiarTexto(el('uidSinPerfil').textContent).then(()=>toast('Código copiado')).catch(()=>toast('Mantén presionado el código para copiarlo')); };
+
+function mostrar(id){
+  for(const s of ['pantallaCargando','pantallaLogin','pantallaSinPerfil','app']) el(s).classList.toggle('oculto', s!==id);
+}
+function limpiarListeners(){
+  S.listeners.forEach(u=>u()); S.listeners=[];
+  if(S.listenerRegistros){ S.listenerRegistros(); S.listenerRegistros=null; }
+}
+
+let perfilUnsub=null;
+auth.onAuthStateChanged(user=>{
+  limpiarListeners(); if(perfilUnsub){perfilUnsub();perfilUnsub=null;}
+  S.user=user; S.perfil=null; S.pantalla=null; S.form=null;
+  if(!user){ mostrar('pantallaLogin'); return; }
+  mostrar('pantallaCargando');
+  perfilUnsub = db.collection(COL.usuarios).doc(user.uid).onSnapshot(snap=>{
+    const p = snap.exists ? {id:snap.id, ...snap.data()} : null;
+    if(!p || p.activo!==true){
+      if(snap.metadata.fromCache && !p) return; // espera respuesta del servidor
+      limpiarListeners(); S.perfil=null;
+      el('sinPerfilMsg').textContent = p ? 'Tu usuario está desactivado. Habla con el dueño.' : 'Tu cuenta todavía no está dada de alta en Gastos MP. Pídele al dueño que te dé acceso.';
+      el('uidSinPerfil').textContent=user.uid; mostrar('pantallaSinPerfil'); return;
+    }
+    const cambioRol = !S.perfil || S.perfil.rol!==p.rol || S.perfil.sucursal!==p.sucursal;
+    S.perfil=p;
+    if(cambioRol) iniciarApp();
+    else el('btnCuenta').textContent = p.nombre || usuarioDeEmail(user.email);
+  }, err=>{
+    el('sinPerfilMsg').textContent='No se pudo leer tu perfil: '+errorTexto(err);
+    el('uidSinPerfil').textContent=user.uid; mostrar('pantallaSinPerfil');
+  });
+});
+
+/* ================= Arranque de la app ================= */
+function iniciarApp(){
+  limpiarListeners();
+  mostrar('app');
+  el('btnCuenta').textContent = S.perfil.nombre || usuarioDeEmail(S.user.email);
+  // Catálogo
+  S.listeners.push(db.collection(COL.catalogo).orderBy('orden').onSnapshot(snap=>{
+    S.catalogo = snap.docs.map(d=>({id:d.id,...d.data()}));
+    S.catalogoListo = !snap.metadata.fromCache || S.catalogo.length>0;
+    refrescar('catalogo');
+  }, err=>toast('Catálogo: '+errorTexto(err))));
+  // Configuración (+ indicador de conexión)
+  S.listeners.push(db.collection(COL.config).doc('general').onSnapshot({includeMetadataChanges:true}, snap=>{
+    el('estadoConexion').classList.toggle('offline', snap.metadata.fromCache);
+    el('estadoConexion').title = snap.metadata.fromCache ? 'Sin conexión: lo que captures se sube al volver la señal' : 'En línea';
+    if(snap.exists){
+      const d=snap.data();
+      S.config = { sucursales:d.sucursales||SUCURSALES_INICIALES, formasPago:d.formasPago||FORMAS_PAGO_INICIALES, unidades:d.unidades||[] };
+      S.configExiste = true;
+    } else S.configExiste = false;
+    refrescar('config');
+  }, err=>toast('Configuración: '+errorTexto(err))));
+  // Usuarios (solo dueño)
+  if(esDueno()){
+    S.listeners.push(db.collection(COL.usuarios).onSnapshot(snap=>{
+      S.usuarios = snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
+      refrescar('usuarios');
+    }));
+  }
+  suscribirRegistros();
+  armarNav();
+  irA(esDueno() ? 'inicio' : 'capturar');
+}
+
+function suscribirRegistros(){
+  if(S.listenerRegistros){ S.listenerRegistros(); S.listenerRegistros=null; }
+  let q = db.collection(COL.registros);
+  if(esDueno()) q = q.where('mes','==',S.mesSel);
+  else { S.mesSel = mesDe(hoy()); q = q.where('creadoPor','==',S.user.uid).where('mes','==',S.mesSel); }
+  S.registros=[];
+  S.listenerRegistros = q.onSnapshot({includeMetadataChanges:true}, snap=>{
+    S.registros = snap.docs.map(d=>({id:d.id, ...d.data(), _subir:d.metadata.hasPendingWrites}))
+      .sort((a,b)=> (b.fecha||'').localeCompare(a.fecha||'') || ((b.creadoEn?.seconds||9e9)-(a.creadoEn?.seconds||9e9)));
+    refrescar('registros');
+  }, err=>toast('Gastos: '+errorTexto(err)));
+}
+
+/* ================= Navegación ================= */
+const NAV_DUENO = [['inicio','📊','Inicio'],['capturar','➕','Capturar'],['gastos','📋','Gastos'],['mas','⚙️','Más']];
+const NAV_ENC   = [['capturar','➕','Capturar'],['mis','📋','Mis gastos']];
+function armarNav(){
+  const items = esDueno()?NAV_DUENO:NAV_ENC;
+  el('nav').innerHTML = items.map(([id,ico,t])=>`<button data-ir="${id}"><span class="ico">${ico}</span>${t}</button>`).join('');
+  el('nav').querySelectorAll('button').forEach(b=>b.onclick=()=>{ if(b.dataset.ir==='capturar' && S.form && S.form.id) S.form=null; irA(b.dataset.ir); });
+}
+function irA(p){
+  S.pantalla=p;
+  el('nav').querySelectorAll('button').forEach(b=>b.classList.toggle('activo', b.dataset.ir===p || (['catalogo','usuarios','unidades','listas','exportar'].includes(p) && b.dataset.ir==='mas')));
+  render(); window.scrollTo(0,0);
+}
+/* Re-render solo si la pantalla actual depende del dato que cambió.
+   La pantalla Capturar NO se re-dibuja completa (para no borrar lo que se está escribiendo). */
+function refrescar(que){
+  const p=S.pantalla; if(!p) return;
+  if(p==='capturar'){ if(que==='catalogo'||que==='config') renderOpcionesCaptura(); return; }
+  const dep = { inicio:['registros','catalogo'], gastos:['registros','catalogo','usuarios','config'], mis:['registros'],
+    catalogo:['catalogo'], usuarios:['usuarios','config'], unidades:['config'], listas:['config'], mas:['catalogo','config'], exportar:[] };
+  if((dep[p]||[]).includes(que)) render();
+}
+function render(){
+  const f = { inicio:renderInicio, capturar:renderCapturar, gastos:renderGastos, mis:renderMis, mas:renderMas,
+    catalogo:renderCatalogo, usuarios:renderUsuarios, unidades:renderUnidades, listas:renderListas, exportar:renderExportar }[S.pantalla];
+  f && f();
+}
+
+/* ================= CAPTURAR ================= */
+function formNuevo(){
+  return { id:null, conceptoId:'', monto:'', descripcion:'', unidadId:'', km:'', fecha:hoy(),
+    sucursal: esDueno() ? 'General' : S.perfil.sucursal, formaPago:'Efectivo caja', tieneTicket:true };
+}
+function conceptosVisibles(){
+  return catalogoOrdenado().filter(c=>c.activo!==false && (esDueno() || c.quienCaptura==='encargado'));
+}
+function renderCapturar(){
+  if(!S.form) S.form=formNuevo();
+  const f=S.form;
+  const editando = f.id ? `<div class="editando"><span>Editando gasto del ${fechaCorta(f.fecha)}</span><button class="btn chico sec" id="cCancelar">Cancelar</button></div>` : '';
+  el('contenido').innerHTML = `
+    ${editando}
+    <div class="titulo">¿Qué se pagó?</div>
+    <div class="rejilla" id="cConceptos"></div>
+    <div class="tarjeta" style="margin-top:12px">
+      <label for="cMonto" style="margin-top:0">Monto</label>
+      <input id="cMonto" class="monto" inputmode="decimal" placeholder="$0.00" value="${esc(f.monto)}">
+      <label for="cDesc">Descripción (qué fue y a quién se pagó)</label>
+      <textarea id="cDesc" rows="2" placeholder="Ej. 10 rollos de ticket, Papelería Cruz">${esc(f.descripcion)}</textarea>
+      <div id="cBloqueUnidad" class="oculto">
+        <label>Unidad</label>
+        <div class="rejilla" id="cUnidades"></div>
+        <label for="cKm">Kilometraje</label>
+        <input id="cKm" inputmode="numeric" placeholder="Ej. 154320" value="${esc(f.km)}">
+      </div>
+      <label>¿Hay ticket o nota?</label>
+      <div class="segmento" id="cTicket"><button type="button" data-v="1">Sí</button><button type="button" data-v="0">No</button></div>
+      <div class="fila">
+        <div><label for="cFecha">Fecha</label><input id="cFecha" type="date" value="${esc(f.fecha)}" max="${hoy()}"></div>
+        <div><label for="cPago">Pagado con</label><select id="cPago"></select></div>
+      </div>
+      ${esDueno()?`<label for="cSucursal">Sucursal</label><select id="cSucursal"></select>`:`<label>Sucursal</label><div style="font-weight:700;padding:4px 2px">${esc(S.perfil.sucursal||'—')}</div>`}
+      <button class="btn" id="cGuardar">${f.id?'Guardar cambios':'Guardar gasto'}</button>
+      ${f.id?`<button class="btn peligro" id="cBorrar">Borrar gasto</button>`:''}
+      <div class="error" id="cError"></div>
+    </div>`;
+  const on=(id,ev,fn)=>el(id)&&el(id).addEventListener(ev,fn);
+  on('cMonto','input',e=>f.monto=e.target.value);
+  on('cDesc','input',e=>f.descripcion=e.target.value);
+  on('cKm','input',e=>f.km=e.target.value.replace(/[^\d]/g,''));
+  on('cFecha','change',e=>f.fecha=e.target.value);
+  on('cPago','change',e=>f.formaPago=e.target.value);
+  on('cSucursal','change',e=>f.sucursal=e.target.value);
+  el('cTicket').querySelectorAll('button').forEach(b=>b.onclick=()=>{ f.tieneTicket=b.dataset.v==='1'; pintarTicket(); });
+  on('cGuardar','click',guardarGasto);
+  on('cBorrar','click',()=>borrarGasto(f.id,true));
+  on('cCancelar','click',()=>{ const volver = S.form._volver||'capturar'; S.form=null; irA(volver); });
+  pintarTicket();
+  renderOpcionesCaptura();
+}
+function pintarTicket(){
+  el('cTicket')?.querySelectorAll('button').forEach(b=>b.classList.toggle('sel', (b.dataset.v==='1')===S.form.tieneTicket));
+}
+function renderOpcionesCaptura(){
+  const f=S.form; if(!f || !el('cConceptos')) return;
+  const lista=conceptosVisibles();
+  if(!lista.length){
+    el('cConceptos').innerHTML = `<div class="vacio" style="grid-column:1/-1">${S.catalogoListo ? (esDueno()?'El catálogo está vacío. Ve a Más → Catálogo y carga el catálogo inicial.':'Aún no hay conceptos asignados para encargado.') : 'Cargando conceptos…'}</div>`;
+  } else {
+    let html='', grupo='';
+    for(const c of lista){
+      if(esDueno() && c.grupo!==grupo){ grupo=c.grupo; html+=`<div class="grupoTitulo">${esc(grupo)}</div>`; }
+      html+=`<button type="button" class="opcion ${c.id===f.conceptoId?'sel':''}" data-id="${c.id}">${esc(c.nombre)}</button>`;
+    }
+    // si se edita un gasto cuyo concepto ya no está activo, mostrarlo igual
+    if(f.conceptoId && !lista.find(c=>c.id===f.conceptoId)){
+      html+=`<button type="button" class="opcion sel" data-id="${esc(f.conceptoId)}">${esc(f._conceptoNombre||'Concepto anterior')}</button>`;
+    }
+    el('cConceptos').innerHTML=html;
+    el('cConceptos').querySelectorAll('.opcion').forEach(b=>b.onclick=()=>{
+      f.conceptoId=b.dataset.id;
+      el('cConceptos').querySelectorAll('.opcion').forEach(x=>x.classList.toggle('sel',x===b));
+      actualizarBloqueUnidad();
+      setTimeout(()=>el('cMonto').focus(),50);
+    });
+  }
+  // selects
+  const pagos=S.config.formasPago||FORMAS_PAGO_INICIALES;
+  if(f.formaPago && !pagos.includes(f.formaPago)) pagos.push(f.formaPago);
+  el('cPago').innerHTML = pagos.map(p=>`<option ${p===f.formaPago?'selected':''}>${esc(p)}</option>`).join('');
+  if(el('cSucursal')) el('cSucursal').innerHTML=(S.config.sucursales||SUCURSALES_INICIALES).map(s=>`<option ${s===f.sucursal?'selected':''}>${esc(s)}</option>`).join('');
+  actualizarBloqueUnidad();
+}
+function actualizarBloqueUnidad(){
+  const f=S.form, c=conceptoPorId(f.conceptoId);
+  const pide = c ? !!c.pideUnidadKm : !!f.unidadId;
+  el('cBloqueUnidad').classList.toggle('oculto', !pide);
+  if(!pide) return;
+  const unidades=(S.config.unidades||[]).filter(u=>u.activo!==false || u.id===f.unidadId);
+  el('cUnidades').innerHTML = unidades.length ? unidades.map(u=>`<button type="button" class="opcion ${u.id===f.unidadId?'sel':''}" data-id="${u.id}">${esc(nombreUnidad(u))}</button>`).join('')
+    : `<div class="vacio" style="grid-column:1/-1">No hay unidades. ${esDueno()?'Agrégalas en Más → Unidades.':'Pide al dueño que las dé de alta.'}</div>`;
+  el('cUnidades').querySelectorAll('.opcion').forEach(b=>b.onclick=()=>{
+    f.unidadId=b.dataset.id;
+    el('cUnidades').querySelectorAll('.opcion').forEach(x=>x.classList.toggle('sel',x===b));
+  });
+}
+function parseMonto(v){ const n=parseFloat(String(v).replace(/[$,\s]/g,'')); return isFinite(n)?Math.round(n*100)/100:NaN; }
+
+function guardarGasto(){
+  const f=S.form, err=el('cError'); err.textContent='';
+  const c=conceptoPorId(f.conceptoId);
+  const monto=parseMonto(f.monto);
+  if(!f.conceptoId) return err.textContent='Elige qué se pagó.';
+  if(!(monto>0)) return err.textContent='Escribe un monto mayor a cero.';
+  if((f.descripcion||'').trim().length<3) return err.textContent='Escribe una descripción corta.';
+  if(!f.fecha) return err.textContent='Escribe la fecha.';
+  const pide = c ? !!c.pideUnidadKm : false;
+  const u = pide ? unidadPorId(f.unidadId) : null;
+  if(pide && !u) return err.textContent='Elige la unidad.';
+  if(pide && !f.km) return err.textContent='Escribe el kilometraje.';
+  if(!f.sucursal) return err.textContent='Tu usuario no tiene sucursal asignada. Avisa al dueño.';
+
+  const datos = {
+    fecha:f.fecha, mes:mesDe(f.fecha), sucursal:f.sucursal,
+    conceptoId:f.conceptoId, conceptoNombre: c ? c.nombre : (f._conceptoNombre||''), grupo: c ? c.grupo : (f._grupo||''),
+    descripcion:f.descripcion.trim(), monto, formaPago:f.formaPago, tieneTicket:!!f.tieneTicket,
+    unidadId: u?u.id:'', chofer: u?u.chofer:'', vehiculo: u?u.vehiculo:'', km: (pide && f.km) ? parseInt(f.km,10) : null,
+  };
+  let promesa, nuevo=!f.id;
+  if(nuevo){
+    const ref=db.collection(COL.registros).doc();
+    Object.assign(datos,{ estado: esDueno()?'aprobado':'pendiente', motivoRechazo:'',
+      creadoPor:S.user.uid, creadoPorNombre:S.perfil.nombre||usuarioDeEmail(S.user.email), creadoEn:TS() });
+    promesa=ref.set(datos);
+  } else {
+    Object.assign(datos,{ editadoPor:S.perfil.nombre||usuarioDeEmail(S.user.email), editadoEn:TS() });
+    promesa=db.collection(COL.registros).doc(f.id).update(datos);
+  }
+  // No se espera al servidor: si no hay señal queda en cola y se sube sola.
+  promesa.catch(e=>toast('No se pudo guardar: '+errorTexto(e),5000));
+  toast(nuevo ? `Guardado ✓ ${c?c.nombre:''} ${$$(monto)}` : 'Cambios guardados ✓');
+  const volver=f._volver;
+  S.form=formNuevo();
+  if(!nuevo && volver) irA(volver); else renderCapturar();
+}
+
+async function borrarGasto(id, desdeForm){
+  if(!(await confirmar('Borrar gasto','Se borrará este gasto. No se puede deshacer.','Borrar'))) return;
+  db.collection(COL.registros).doc(id).delete().catch(e=>toast('No se pudo borrar: '+errorTexto(e),5000));
+  toast('Gasto borrado');
+  if(desdeForm){ const v=S.form && S.form._volver; S.form=null; irA(v||'capturar'); } else cerrarModal();
+}
+function editarGasto(r, volver){
+  S.form = { id:r.id, conceptoId:r.conceptoId, monto:String(r.monto), descripcion:r.descripcion||'', unidadId:r.unidadId||'',
+    km:r.km!=null?String(r.km):'', fecha:r.fecha, sucursal:r.sucursal, formaPago:r.formaPago||'Efectivo caja', tieneTicket:r.tieneTicket!==false,
+    _conceptoNombre:r.conceptoNombre, _grupo:r.grupo, _volver:volver };
+  cerrarModal(); S.pantalla='capturar';
+  el('nav').querySelectorAll('button').forEach(b=>b.classList.toggle('activo', b.dataset.ir==='capturar'));
+  renderCapturar(); window.scrollTo(0,0);
+}
+
+/* ================= Tarjeta de gasto ================= */
+function htmlGasto(r, conRegistro){
+  const unidad = r.chofer ? `${esc(r.chofer)} - ${esc(r.vehiculo)}${r.km?` · ${Number(r.km).toLocaleString('es-MX')} km`:''}` : '';
+  return `<div class="item" data-id="${r.id}">
+    <div class="cuerpo">
+      <div class="linea1"><span>${esc(r.conceptoNombre)}</span><span class="imp">${$$(r.monto)}</span></div>
+      <div class="linea2">${fechaCorta(r.fecha)} · ${esc(r.sucursal)}${conRegistro?` · ${esc(r.creadoPorNombre)}`:''} · ${esc(r.formaPago||'')}</div>
+      <div class="linea3">${esc(r.descripcion)}${unidad?`<br><span style="color:var(--gris)">${unidad}</span>`:''}</div>
+      <div style="margin-top:6px"><span class="chip ${r.estado}">${r.estado}</span>${r.tieneTicket===false?'<span class="chip gris">sin ticket</span>':''}${r._subir?'<span class="chip subir">por subir</span>':''}
+      ${r.estado==='rechazado'&&r.motivoRechazo?`<span style="font-size:13px;color:var(--rojo)">${esc(r.motivoRechazo)}</span>`:''}</div>
+    </div></div>`;
+}
+const cuenta = r => r.estado!=='rechazado';
+
+/* ================= MIS GASTOS (encargado) ================= */
+function renderMis(){
+  const regs=S.registros, total=regs.filter(cuenta).reduce((s,r)=>s+r.monto,0);
+  const pend=regs.filter(r=>r.estado==='pendiente').length;
+  el('contenido').innerHTML = `
+    <div class="kpis">
+      <div class="kpi"><div class="et">Total de ${nombreMes(S.mesSel)}</div><div class="v">${$$(total)}</div></div>
+      <div class="kpi ${pend?'alerta':''}"><div class="et">Por revisar con el dueño</div><div class="v">${pend}</div></div>
+    </div>
+    <div class="titulo">${regs.length} gasto${regs.length===1?'':'s'} este mes</div>
+    <div id="lista">${regs.length?regs.map(r=>htmlGasto(r,false)).join(''):'<div class="vacio">Todavía no capturas gastos este mes.</div>'}</div>
+    <p class="sub" style="text-align:center;margin-top:16px">Toca un gasto pendiente para corregirlo o borrarlo.</p>`;
+  el('lista').querySelectorAll('.item').forEach(n=>n.onclick=()=>{
+    const r=S.registros.find(x=>x.id===n.dataset.id); if(!r) return;
+    if(r.estado==='pendiente') editarGasto(r,'mis');
+    else toast(r.estado==='aprobado'?'Este gasto ya fue aprobado y no se puede cambiar.':'Gasto rechazado: '+(r.motivoRechazo||'sin motivo'));
+  });
+}
+
+/* ================= INICIO (dueño) ================= */
+function selectorMes(){
+  return `<div class="fila" style="align-items:center;margin-bottom:12px">
+    <input type="month" id="mesSel" value="${S.mesSel}" style="flex:1">
+  </div>`;
+}
+function conectarSelectorMes(){
+  el('mesSel').onchange=e=>{ if(!e.target.value) return; S.mesSel=e.target.value; suscribirRegistros(); render(); };
+}
+function renderInicio(){
+  const regs=S.registros.filter(cuenta);
+  const suma=f=>regs.filter(f).reduce((s,r)=>s+r.monto,0);
+  const op=suma(r=>r.grupo==='Operación');
+  const pend=S.registros.filter(r=>r.estado==='pendiente');
+  const sinTicket=regs.filter(r=>r.tieneTicket===false).length;
+  const porGrupo=GRUPOS.map(g=>[g,suma(r=>r.grupo===g)]).filter(([,v])=>v);
+  const sucs=[...new Set(regs.filter(r=>r.grupo==='Operación').map(r=>r.sucursal))];
+  const porSuc=sucs.map(s=>[s,suma(r=>r.grupo==='Operación'&&r.sucursal===s)]).sort((a,b)=>b[1]-a[1]);
+  const conc={}; regs.filter(r=>r.grupo==='Operación').forEach(r=>conc[r.conceptoNombre]=(conc[r.conceptoNombre]||0)+r.monto);
+  const top=Object.entries(conc).sort((a,b)=>b[1]-a[1]);
+  const tabla=(filas,total)=>`<table class="tabla">${filas.map(([k,v])=>`<tr><td>${esc(k)}</td><td class="n">${$$(v)}</td></tr>`).join('')}${total!=null?`<tr class="total"><td>Total</td><td class="n">${$$(total)}</td></tr>`:''}</table>`;
+  el('contenido').innerHTML = `
+    ${selectorMes()}
+    <div class="kpis">
+      <div class="kpi"><div class="et">Gastos de operación</div><div class="v">${$$(op)}</div></div>
+      <div class="kpi ${pend.length?'alerta':''}" id="kPend" style="cursor:pointer"><div class="et">Pendientes por aprobar</div><div class="v">${pend.length}</div></div>
+    </div>
+    ${sinTicket?`<div class="aviso">${sinTicket} gasto${sinTicket===1?'':'s'} sin ticket este mes.</div>`:''}
+    <div class="tarjeta"><div class="titulo">Por grupo</div>${porGrupo.length?tabla(porGrupo):'<div class="vacio">Sin gastos en este mes.</div>'}</div>
+    ${porSuc.length?`<div class="tarjeta"><div class="titulo">Operación por sucursal</div>${tabla(porSuc,op)}</div>`:''}
+    ${top.length?`<div class="tarjeta"><div class="titulo">Operación por concepto</div>${tabla(top)}</div>`:''}
+    <p class="sub" style="text-align:center">No incluye gastos rechazados. "Dueño" y "Entrada extra" no son gastos de operación.</p>`;
+  conectarSelectorMes();
+  el('kPend').onclick=()=>{ S.filtros={sucursal:'',concepto:'',estado:'pendiente',creadoPor:''}; irA('gastos'); };
+}
+
+/* ================= GASTOS (dueño) ================= */
+function registrosFiltrados(){
+  const f=S.filtros;
+  return S.registros.filter(r=>(!f.sucursal||r.sucursal===f.sucursal)&&(!f.concepto||r.conceptoNombre===f.concepto)
+    &&(!f.estado||r.estado===f.estado)&&(!f.creadoPor||r.creadoPor===f.creadoPor));
+}
+function renderGastos(){
+  const f=S.filtros, lista=registrosFiltrados();
+  const total=lista.filter(cuenta).reduce((s,r)=>s+r.monto,0);
+  const pend=lista.filter(r=>r.estado==='pendiente');
+  const opts=(arr,sel,todos)=>`<option value="">${todos}</option>`+arr.map(([v,t])=>`<option value="${esc(v)}" ${v===sel?'selected':''}>${esc(t)}</option>`).join('');
+  const conceptos=[...new Set(S.registros.map(r=>r.conceptoNombre))].sort().map(c=>[c,c]);
+  const personas=[...new Map(S.registros.map(r=>[r.creadoPor,r.creadoPorNombre])).entries()];
+  el('contenido').innerHTML = `
+    ${selectorMes()}
+    <div class="filtros">
+      <select id="fSuc">${opts((S.config.sucursales||[]).map(s=>[s,s]),f.sucursal,'Todas las sucursales')}</select>
+      <select id="fEst">${opts([['pendiente','Pendientes'],['aprobado','Aprobados'],['rechazado','Rechazados']],f.estado,'Todos los estados')}</select>
+      <select id="fCon">${opts(conceptos,f.concepto,'Todos los conceptos')}</select>
+      <select id="fPer">${opts(personas,f.creadoPor,'Todos registraron')}</select>
+    </div>
+    <div class="resumen"><span>${lista.length} gasto${lista.length===1?'':'s'}</span><b>${$$(total)}</b></div>
+    ${pend.length?`<button class="btn verde" id="btnAprobarVis" style="margin:0 0 12px">Aprobar ${pend.length} pendiente${pend.length===1?'':'s'} visibles</button>`:''}
+    <div id="lista">${lista.length?lista.map(r=>htmlGasto(r,true)).join(''):'<div class="vacio">No hay gastos con estos filtros.</div>'}</div>`;
+  conectarSelectorMes();
+  const set=(id,k)=>el(id).onchange=e=>{ S.filtros[k]=e.target.value; renderGastos(); };
+  set('fSuc','sucursal'); set('fEst','estado'); set('fCon','concepto'); set('fPer','creadoPor');
+  if(el('btnAprobarVis')) el('btnAprobarVis').onclick=async()=>{
+    if(!(await confirmar('Aprobar gastos',`Se aprobarán ${pend.length} gastos pendientes que estás viendo. Hazlo después de cuadrar los tickets.`,'Aprobar','verde'))) return;
+    for(let i=0;i<pend.length;i+=400){
+      const b=db.batch();
+      pend.slice(i,i+400).forEach(r=>b.update(db.collection(COL.registros).doc(r.id),{estado:'aprobado',motivoRechazo:'',revisadoPor:S.perfil.nombre||'',revisadoEn:TS()}));
+      b.commit().catch(e=>toast('Error al aprobar: '+errorTexto(e),5000));
+    }
+    toast(`${pend.length} gasto${pend.length===1?'':'s'} aprobado${pend.length===1?'':'s'} ✓`);
+  };
+  el('lista').querySelectorAll('.item').forEach(n=>n.onclick=()=>detalleGasto(n.dataset.id));
+}
+function detalleGasto(id){
+  const r=S.registros.find(x=>x.id===id); if(!r) return;
+  const fila=(k,v)=>v||v===0?`<div><span>${k}</span><span>${v}</span></div>`:'';
+  abrirModal(`<h2>${esc(r.conceptoNombre)} · ${$$(r.monto)}</h2>
+    <div style="margin-bottom:8px"><span class="chip ${r.estado}">${r.estado}</span>${r.tieneTicket===false?'<span class="chip gris">sin ticket</span>':''}</div>
+    <div class="det">
+      ${fila('Fecha',fechaCorta(r.fecha))}${fila('Sucursal',esc(r.sucursal))}${fila('Grupo',esc(r.grupo))}
+      ${fila('Descripción',esc(r.descripcion))}${fila('Pagado con',esc(r.formaPago))}
+      ${r.chofer?fila('Unidad',`${esc(r.chofer)} - ${esc(r.vehiculo)}`):''}${r.km?fila('Kilometraje',Number(r.km).toLocaleString('es-MX')):''}
+      ${fila('Registró',esc(r.creadoPorNombre))}${r.editadoPor?fila('Última edición',esc(r.editadoPor)):''}
+      ${r.estado==='rechazado'?fila('Motivo',esc(r.motivoRechazo)):''}
+    </div>
+    ${r.estado!=='aprobado'?`<button class="btn verde" id="dAprobar">Aprobar</button>`:''}
+    ${r.estado!=='rechazado'?`<button class="btn peligro" id="dRechazar">Rechazar</button>`:''}
+    <div class="fila"><button class="btn sec" id="dEditar">Editar</button><button class="btn sec" id="dBorrar">Borrar</button></div>
+    <button class="btn sec" id="dCerrar">Cerrar</button>`);
+  const upd=(d,msg)=>{ db.collection(COL.registros).doc(id).update({...d,revisadoPor:S.perfil.nombre||'',revisadoEn:TS()}).catch(e=>toast(errorTexto(e),5000)); toast(msg); cerrarModal(); };
+  el('dAprobar')&&(el('dAprobar').onclick=()=>upd({estado:'aprobado',motivoRechazo:''},'Aprobado ✓'));
+  el('dRechazar')&&(el('dRechazar').onclick=()=>{
+    abrirModal(`<h2>Rechazar gasto</h2><p>${esc(r.conceptoNombre)} · ${$$(r.monto)}</p>
+      <label for="mMotivo">Motivo (lo verá el encargado)</label><input id="mMotivo" placeholder="Ej. no coincide con el ticket">
+      <div class="fila"><button class="btn sec" id="mNo">Cancelar</button><button class="btn peligro" id="mSi">Rechazar</button></div>`);
+    el('mNo').onclick=()=>detalleGasto(id);
+    el('mSi').onclick=()=>upd({estado:'rechazado',motivoRechazo:el('mMotivo').value.trim()},'Gasto rechazado');
+  });
+  el('dEditar').onclick=()=>editarGasto(r,'gastos');
+  el('dBorrar').onclick=()=>borrarGasto(id,false);
+  el('dCerrar').onclick=cerrarModal;
+}
+
+/* ================= MÁS (dueño) ================= */
+function renderMas(){
+  const items=[['catalogo','🗂️','Catálogo de conceptos',`${S.catalogo.filter(c=>c.activo!==false).length} activos`],
+    ['usuarios','👥','Usuarios','Encargados y accesos'],
+    ['unidades','🚚','Unidades',`${(S.config.unidades||[]).filter(u=>u.activo!==false).length} activas`],
+    ['listas','🏪','Sucursales y formas de pago',''],
+    ['exportar','📤','Exportar a Excel','Para pegar en tu estado de resultados']];
+  el('contenido').innerHTML = `<div class="menu">${items.map(([id,ico,t,s])=>`<div class="item" data-ir="${id}"><span class="ico">${ico}</span><div class="cuerpo"><div class="linea1">${t}</div><div class="linea2">${s}</div></div><span>›</span></div>`).join('')}</div>
+    <p class="sub" style="text-align:center">Gastos MP v${VERSION}</p>`;
+  el('contenido').querySelectorAll('[data-ir]').forEach(n=>n.onclick=()=>irA(n.dataset.ir));
+}
+function cabecera(t){ return `<div class="fila" style="align-items:center;margin-bottom:10px"><button class="btn chico sec" id="volverMas" style="flex:none">‹ Más</button><div class="titulo" style="margin:0;flex:1;text-align:right">${t}</div></div>`; }
+function conectarVolver(){ el('volverMas').onclick=()=>irA('mas'); }
+
+/* ---- Catálogo ---- */
+async function cargarInicial(){
+  if(!(await confirmar('Cargar datos iniciales','Se cargarán los 24 conceptos del Excel, las sucursales, formas de pago y las 3 unidades.','Cargar','verde'))) return;
+  const b=db.batch();
+  CATALOGO_INICIAL.forEach(([nombre,grupo,quien,pide,ej],i)=>b.set(db.collection(COL.catalogo).doc(),{nombre,grupo,quienCaptura:quien,pideUnidadKm:pide,ejemplos:ej,activo:true,orden:(i+1)*10}));
+  if(!S.configExiste) b.set(db.collection(COL.config).doc('general'),{sucursales:SUCURSALES_INICIALES,formasPago:FORMAS_PAGO_INICIALES,
+    unidades:UNIDADES_INICIALES.map(u=>({id:uid(),...u,activo:true}))});
+  b.commit().then(()=>toast('Datos iniciales cargados ✓')).catch(e=>toast(errorTexto(e),5000));
+}
+function renderCatalogo(){
+  const cat=catalogoOrdenado();
+  let html=cabecera('Catálogo');
+  if(!cat.length) html+=`<div class="tarjeta"><p>El catálogo está vacío.</p><button class="btn verde" id="btnInicial">Cargar catálogo inicial (24 conceptos)</button></div>`;
+  html+=`<button class="btn" id="btnNuevoC" style="margin:0 0 12px">+ Nuevo concepto</button>`;
+  let grupo='';
+  cat.forEach((c,i)=>{
+    if(c.grupo!==grupo){ grupo=c.grupo; html+=`<div class="titulo">${esc(grupo)}</div>`; }
+    html+=`<div class="item" data-id="${c.id}"><div class="cuerpo" data-editar="${c.id}" style="cursor:pointer">
+      <div class="linea1"><span>${esc(c.nombre)}</span></div>
+      <div class="linea2">${esc(c.ejemplos||'')}</div>
+      <div style="margin-top:5px"><span class="chip ${c.quienCaptura==='encargado'?'aprobado':'gris'}">${c.quienCaptura==='encargado'?'Encargado':'Dueño'}</span>${c.pideUnidadKm?'<span class="chip gris">unidad + km</span>':''}${c.activo===false?'<span class="chip rechazado">inactivo</span>':''}</div>
+      </div><div class="orden"><button data-sube="${i}" ${i===0||cat[i-1].grupo!==c.grupo?'disabled':''}>▲</button><button data-baja="${i}" ${i===cat.length-1||cat[i+1].grupo!==c.grupo?'disabled':''}>▼</button></div></div>`;
+  });
+  el('contenido').innerHTML=html; conectarVolver();
+  el('btnInicial')&&(el('btnInicial').onclick=cargarInicial);
+  el('btnNuevoC').onclick=()=>editarConcepto(null);
+  el('contenido').querySelectorAll('[data-editar]').forEach(n=>n.onclick=()=>editarConcepto(n.dataset.editar));
+  const mover=(i,j)=>{ const a=cat[i],b=cat[j]; const bt=db.batch();
+    bt.update(db.collection(COL.catalogo).doc(a.id),{orden:b.orden}); bt.update(db.collection(COL.catalogo).doc(b.id),{orden:a.orden});
+    bt.commit().catch(e=>toast(errorTexto(e))); };
+  el('contenido').querySelectorAll('[data-sube]').forEach(n=>n.onclick=()=>mover(+n.dataset.sube,+n.dataset.sube-1));
+  el('contenido').querySelectorAll('[data-baja]').forEach(n=>n.onclick=()=>mover(+n.dataset.baja,+n.dataset.baja+1));
+}
+function editarConcepto(id){
+  const c=id?conceptoPorId(id):{nombre:'',grupo:'Operación',quienCaptura:'encargado',pideUnidadKm:false,ejemplos:'',activo:true};
+  abrirModal(`<h2>${id?'Editar':'Nuevo'} concepto</h2>
+    <label for="eNom">Nombre</label><input id="eNom" value="${esc(c.nombre)}">
+    <label for="eGru">Grupo</label><select id="eGru">${GRUPOS.map(g=>`<option ${g===c.grupo?'selected':''}>${g}</option>`).join('')}</select>
+    <label for="eQui">¿Quién lo captura?</label><select id="eQui"><option value="encargado" ${c.quienCaptura==='encargado'?'selected':''}>Encargado (y dueño)</option><option value="dueno" ${c.quienCaptura!=='encargado'?'selected':''}>Solo dueño</option></select>
+    <label for="eEj">Ejemplos (ayuda para quien captura)</label><input id="eEj" value="${esc(c.ejemplos||'')}">
+    <label class="check"><input type="checkbox" id="ePide" ${c.pideUnidadKm?'checked':''}> Pide unidad y kilometraje</label>
+    <label class="check"><input type="checkbox" id="eAct" ${c.activo!==false?'checked':''}> Activo</label>
+    ${id?'<p class="sub" style="margin-top:12px">Si cambias el nombre, cámbialo igual en la hoja CATALOGO de tu Excel. Los gastos ya capturados conservan el nombre anterior.</p>':''}
+    <div class="error" id="eErr"></div>
+    <div class="fila"><button class="btn sec" id="eNo">Cancelar</button><button class="btn" id="eSi">Guardar</button></div>`);
+  el('eNo').onclick=cerrarModal;
+  el('eSi').onclick=()=>{
+    const d={nombre:el('eNom').value.trim(),grupo:el('eGru').value,quienCaptura:el('eQui').value,ejemplos:el('eEj').value.trim(),pideUnidadKm:el('ePide').checked,activo:el('eAct').checked};
+    if(!d.nombre) return el('eErr').textContent='Escribe el nombre.';
+    if(S.catalogo.some(x=>x.id!==id && x.nombre.toLowerCase()===d.nombre.toLowerCase())) return el('eErr').textContent='Ya existe un concepto con ese nombre.';
+    const p = id ? db.collection(COL.catalogo).doc(id).update(d)
+      : db.collection(COL.catalogo).add({...d, orden:(Math.max(0,...S.catalogo.map(x=>x.orden||0))+10)});
+    p.catch(e=>toast(errorTexto(e),5000)); toast('Concepto guardado ✓'); cerrarModal();
+  };
+}
+
+/* ---- Usuarios ---- */
+function renderUsuarios(){
+  el('contenido').innerHTML = cabecera('Usuarios')+`<button class="btn" id="btnNuevoU" style="margin:0 0 12px">+ Nuevo usuario</button>
+    ${S.usuarios.map(u=>`<div class="item" data-id="${u.id}" style="cursor:pointer"><div class="cuerpo">
+      <div class="linea1"><span>${esc(u.nombre||'(sin nombre)')}</span><span class="chip ${u.rol==='dueno'?'aprobado':'gris'}">${u.rol==='dueno'?'Dueño':'Encargado'}</span></div>
+      <div class="linea2">Usuario: ${esc(u.usuario||'')}${u.sucursal?` · ${esc(u.sucursal)}`:''}${u.activo===false?' · <b style="color:var(--rojo)">inactivo</b>':''}</div></div></div>`).join('')}
+    <p class="sub">Si alguien olvida su contraseña: bórralo en Firebase → Authentication y créalo de nuevo aquí con el mismo usuario. Sus gastos no se pierden.</p>`;
+  conectarVolver();
+  el('btnNuevoU').onclick=nuevoUsuario;
+  el('contenido').querySelectorAll('[data-id]').forEach(n=>n.onclick=()=>editarUsuario(n.dataset.id));
+}
+function selectSucursal(id,val){ return `<select id="${id}"><option value="">— ninguna —</option>${(S.config.sucursales||[]).filter(s=>s!=='General').map(s=>`<option ${s===val?'selected':''}>${esc(s)}</option>`).join('')}</select>`; }
+function nuevoUsuario(){
+  abrirModal(`<h2>Nuevo usuario</h2>
+    <label for="uNom">Nombre</label><input id="uNom" placeholder="Ej. Juan Pérez">
+    <label for="uUsu">Usuario (para entrar)</label><input id="uUsu" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Ej. juan">
+    <label for="uCla">Contraseña inicial (mínimo 6)</label><input id="uCla" autocomplete="new-password">
+    <label for="uRol">Rol</label><select id="uRol"><option value="encargado">Encargado</option><option value="dueno">Dueño</option></select>
+    <label for="uSuc">Sucursal</label>${selectSucursal('uSuc','')}
+    <div class="error" id="uErr"></div>
+    <div class="fila"><button class="btn sec" id="uNo">Cancelar</button><button class="btn" id="uSi">Crear</button></div>`);
+  el('uNo').onclick=cerrarModal;
+  el('uSi').onclick=async()=>{
+    const nombre=el('uNom').value.trim(), usuario=el('uUsu').value.trim().toLowerCase(), clave=el('uCla').value, rol=el('uRol').value, sucursal=el('uSuc').value;
+    const e=el('uErr'); e.textContent='';
+    if(!nombre) return e.textContent='Escribe el nombre.';
+    if(!/^[a-z0-9._-]{3,30}$/.test(usuario)) return e.textContent='Usuario: 3 a 30 letras, números, punto o guion, sin espacios ni acentos.';
+    if(clave.length<6) return e.textContent='La contraseña debe tener al menos 6 caracteres.';
+    if(rol==='encargado' && !sucursal) return e.textContent='Elige la sucursal del encargado.';
+    el('uSi').disabled=true;
+    // Se usa una segunda instancia de Firebase para crear la cuenta sin cerrar tu sesión.
+    const sec = firebase.apps.find(a=>a.name==='alta') || firebase.initializeApp(firebaseConfig,'alta');
+    try{
+      const cred = await sec.auth().createUserWithEmailAndPassword(toEmail(usuario), clave);
+      await db.collection(COL.usuarios).doc(cred.user.uid).set({nombre,usuario,rol,sucursal,activo:true,creadoEn:TS()});
+      await sec.auth().signOut();
+      toast(`Usuario ${usuario} creado ✓`); cerrarModal();
+    }catch(err){ e.textContent=errorTexto(err); el('uSi').disabled=false; }
+  };
+}
+function editarUsuario(id){
+  const u=S.usuarios.find(x=>x.id===id); if(!u) return;
+  const yo = id===S.user.uid;
+  abrirModal(`<h2>${esc(u.nombre||'Usuario')}</h2><p class="sub" style="margin:0">Usuario: <b>${esc(u.usuario||'')}</b></p>
+    <label for="uNom">Nombre</label><input id="uNom" value="${esc(u.nombre||'')}">
+    <label for="uRol">Rol</label><select id="uRol" ${yo?'disabled':''}><option value="encargado" ${u.rol!=='dueno'?'selected':''}>Encargado</option><option value="dueno" ${u.rol==='dueno'?'selected':''}>Dueño</option></select>
+    <label for="uSuc">Sucursal</label>${selectSucursal('uSuc',u.sucursal||'')}
+    <label class="check"><input type="checkbox" id="uAct" ${u.activo!==false?'checked':''} ${yo?'disabled':''}> Activo (puede entrar)</label>
+    <div class="error" id="uErr"></div>
+    <div class="fila"><button class="btn sec" id="uNo">Cancelar</button><button class="btn" id="uSi">Guardar</button></div>`);
+  el('uNo').onclick=cerrarModal;
+  el('uSi').onclick=()=>{
+    const d={nombre:el('uNom').value.trim(), sucursal:el('uSuc').value};
+    if(!yo){ d.rol=el('uRol').value; d.activo=el('uAct').checked; }
+    if(!d.nombre) return el('uErr').textContent='Escribe el nombre.';
+    if((d.rol||u.rol)==='encargado' && !d.sucursal) return el('uErr').textContent='El encargado necesita sucursal.';
+    db.collection(COL.usuarios).doc(id).update(d).catch(e=>toast(errorTexto(e),5000)); toast('Usuario actualizado ✓'); cerrarModal();
+  };
+}
+
+/* ---- Unidades ---- */
+function guardarConfig(parcial){
+  return db.collection(COL.config).doc('general').set(parcial,{merge:true}).catch(e=>toast(errorTexto(e),5000));
+}
+function renderUnidades(){
+  const us=S.config.unidades||[];
+  el('contenido').innerHTML = cabecera('Unidades')+`<button class="btn" id="btnNuevaU" style="margin:0 0 12px">+ Nueva unidad</button>
+    ${us.length?us.map(u=>`<div class="item" data-id="${u.id}" style="cursor:pointer"><div class="cuerpo"><div class="linea1"><span>${esc(nombreUnidad(u))}</span>${u.activo===false?'<span class="chip rechazado">inactiva</span>':''}</div>
+      <div class="linea2">Chofer: ${esc(u.chofer)} · Vehículo: ${esc(u.vehiculo)}</div></div></div>`).join(''):'<div class="vacio">Sin unidades.</div>'}
+    <p class="sub">Si cambia el chofer de un vehículo, edita solo el chofer. Los gastos anteriores conservan el nombre que tenían.</p>`;
+  conectarVolver();
+  el('btnNuevaU').onclick=()=>editarUnidad(null);
+  el('contenido').querySelectorAll('[data-id]').forEach(n=>n.onclick=()=>editarUnidad(n.dataset.id));
+}
+function editarUnidad(id){
+  const u=id?unidadPorId(id):{chofer:'',vehiculo:'',activo:true};
+  abrirModal(`<h2>${id?'Editar':'Nueva'} unidad</h2>
+    <label for="nCho">Chofer</label><input id="nCho" value="${esc(u.chofer)}" placeholder="Ej. Manuel M2">
+    <label for="nVeh">Vehículo</label><input id="nVeh" value="${esc(u.vehiculo)}" placeholder="Ej. Nissan">
+    <label class="check"><input type="checkbox" id="nAct" ${u.activo!==false?'checked':''}> Activa</label>
+    <div class="error" id="nErr"></div>
+    <div class="fila"><button class="btn sec" id="nNo">Cancelar</button><button class="btn" id="nSi">Guardar</button></div>`);
+  el('nNo').onclick=cerrarModal;
+  el('nSi').onclick=()=>{
+    const d={chofer:el('nCho').value.trim(),vehiculo:el('nVeh').value.trim(),activo:el('nAct').checked};
+    if(!d.chofer||!d.vehiculo) return el('nErr').textContent='Escribe chofer y vehículo.';
+    const lista=(S.config.unidades||[]).map(x=>({...x}));
+    if(id){ const i=lista.findIndex(x=>x.id===id); lista[i]={...lista[i],...d}; } else lista.push({id:uid(),...d});
+    guardarConfig({unidades:lista}); toast('Unidad guardada ✓'); cerrarModal();
+  };
+}
+
+/* ---- Sucursales y formas de pago ---- */
+function renderListas(){
+  el('contenido').innerHTML = cabecera('Sucursales y pagos')+`<div class="tarjeta">
+    <label for="lSuc" style="margin-top:0">Sucursales (una por renglón)</label>
+    <textarea id="lSuc" rows="4">${esc((S.config.sucursales||[]).join('\n'))}</textarea>
+    <label for="lPag">Formas de pago (una por renglón)</label>
+    <textarea id="lPag" rows="5">${esc((S.config.formasPago||[]).join('\n'))}</textarea>
+    <p class="sub" style="margin-top:10px">Usa los mismos nombres que en tu Excel. "General" es para gastos que no son de una sucursal (rentas de bodega, contador, retiros).</p>
+    <button class="btn" id="lGuardar">Guardar</button></div>`;
+  conectarVolver();
+  el('lGuardar').onclick=()=>{
+    const lim=t=>[...new Set(t.split('\n').map(x=>x.trim()).filter(Boolean))];
+    const sucursales=lim(el('lSuc').value), formasPago=lim(el('lPag').value);
+    if(!sucursales.length||!formasPago.length) return toast('Necesitas al menos una sucursal y una forma de pago.');
+    guardarConfig({sucursales,formasPago}); toast('Guardado ✓');
+  };
+}
+
+/* ---- Exportar ---- */
+function filasExport(regs){
+  // Mismas 8 columnas y orden que la hoja GASTOS del Excel (A:H)
+  return regs.map(r=>{
+    const unidad = r.chofer ? ` [${r.chofer} - ${r.vehiculo}${r.km?`, ${r.km} km`:''}]` : '';
+    return [r.fecha, r.sucursal, r.conceptoNombre, (r.descripcion||'')+unidad, r.monto, r.formaPago||'', r.creadoPorNombre||'', r.tieneTicket===false?'No':'Sí'];
+  });
+}
+async function datosExport(mes, incluirPend){
+  const snap=await db.collection(COL.registros).where('mes','==',mes).get();
+  return snap.docs.map(d=>({id:d.id,...d.data()}))
+    .filter(r=>r.estado==='aprobado' || (incluirPend && r.estado==='pendiente'))
+    .sort((a,b)=>a.fecha.localeCompare(b.fecha) || (a.sucursal||'').localeCompare(b.sucursal||''));
+}
+function renderExportar(){
+  el('contenido').innerHTML = cabecera('Exportar')+`<div class="tarjeta">
+    <label for="xMes" style="margin-top:0">Mes</label><input type="month" id="xMes" value="${S.mesSel}">
+    <label class="check"><input type="checkbox" id="xPend"> Incluir pendientes (normalmente solo aprobados)</label>
+    <button class="btn" id="xCopiar">Copiar para pegar en Excel</button>
+    <button class="btn sec" id="xDescargar">Descargar archivo Excel</button>
+    <div class="error" id="xMsg" style="color:var(--gris)"></div></div>
+    <div class="tarjeta"><div class="titulo">Cómo pegarlo</div>
+    <p style="margin:0;font-size:14px">1. Abre tu archivo de estado de resultados, hoja <b>GASTOS</b>.<br>2. Haz clic en la primera celda vacía de la columna A.<br>3. Pega (Ctrl+V). Salen las 8 columnas en el mismo orden: Fecha, Sucursal, Concepto, Descripción, Monto, Pagado con, Registró, Ticket.<br>4. No pegues el mismo mes dos veces.</p></div>`;
+  conectarVolver();
+  const msg=el('xMsg');
+  el('xCopiar').onclick=async()=>{
+    msg.textContent='Preparando…';
+    try{
+      const regs=await datosExport(el('xMes').value, el('xPend').checked);
+      if(!regs.length) return msg.textContent='No hay gastos para ese mes.';
+      const tsv=filasExport(regs).map(f=>{ f[0]=fechaCorta(f[0]); return f.map(v=>String(v).replace(/[\t\n\r]+/g,' ')).join('\t'); }).join('\n');
+      await copiarTexto(tsv);
+      msg.textContent = regs.length===1 ? '1 renglón copiado. Ya puedes pegarlo en la hoja GASTOS.' : `${regs.length} renglones copiados. Ya puedes pegarlos en la hoja GASTOS.`;
+    }catch(e){ msg.textContent='No se pudo copiar: '+errorTexto(e); }
+  };
+  el('xDescargar').onclick=async()=>{
+    if(esNativo) return msg.textContent='Para descargar el archivo usa la versión web en la computadora. Desde el teléfono usa "Copiar".';
+    msg.textContent='Preparando…';
+    try{
+      await cargarSheetJS();
+      const mes=el('xMes').value, regs=await datosExport(mes, el('xPend').checked);
+      if(!regs.length) return msg.textContent='No hay gastos para ese mes.';
+      const filas=filasExport(regs);
+      const ws1=XLSX.utils.aoa_to_sheet([['Fecha','Sucursal','Concepto','Descripción (qué fue y a quién)','Monto','Pagado con','Registró','¿Ticket/ factura?'],...filas]);
+      // Fecha como número de serie de Excel (evita el desfase de zona horaria)
+      filas.forEach((f,i)=>{ const [y,m,d]=f[0].split('-').map(Number);
+        ws1[XLSX.utils.encode_cell({r:i+1,c:0})]={t:'n', v:(Date.UTC(y,m-1,d)-Date.UTC(1899,11,30))/864e5, z:'dd/mm/yyyy'}; });
+      ws1['!cols']=[12,13,38,48,13,16,16,10].map(w=>({wch:w}));
+      const det=regs.map(r=>[r.fecha,r.sucursal,r.grupo,r.conceptoNombre,r.descripcion,r.monto,r.formaPago,r.chofer||'',r.vehiculo||'',r.km??'',r.tieneTicket===false?'No':'Sí',r.estado,r.creadoPorNombre,r.editadoPor||'']);
+      const ws2=XLSX.utils.aoa_to_sheet([['Fecha','Sucursal','Grupo','Concepto','Descripción','Monto','Pagado con','Chofer','Vehículo','Km','Ticket','Estado','Registró','Editó'],...det]);
+      const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws1,'GASTOS'); XLSX.utils.book_append_sheet(wb,ws2,'DETALLE');
+      XLSX.writeFile(wb,`GastosMP_${mes}.xlsx`);
+      msg.textContent=`Archivo con ${regs.length} gasto${regs.length===1?'':'s'} descargado.`;
+    }catch(e){ msg.textContent='No se pudo generar: '+errorTexto(e); }
+  };
+}
+async function copiarTexto(txt){
+  if(navigator.clipboard && window.isSecureContext){ try{ await navigator.clipboard.writeText(txt); return; }catch(e){} }
+  const ta=document.createElement('textarea'); ta.value=txt; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta);
+  ta.select(); const ok=document.execCommand('copy'); ta.remove();
+  if(!ok) throw new Error('El navegador no permitió copiar.');
+}
+function cargarSheetJS(){
+  if(window.XLSX) return Promise.resolve();
+  return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload=res; s.onerror=()=>rej(new Error('No se pudo cargar el generador de Excel (¿sin internet?)')); document.head.appendChild(s); });
+}
+
+/* ================= Cuenta ================= */
+el('btnCuenta').onclick=()=>{
+  abrirModal(`<h2>${esc(S.perfil.nombre||'')}</h2>
+    <p class="sub" style="margin:0">Usuario: <b>${esc(usuarioDeEmail(S.user.email))}</b> · ${S.perfil.rol==='dueno'?'Dueño':'Encargado'}${S.perfil.sucursal?' · '+esc(S.perfil.sucursal):''}</p>
+    <label for="pAct">Contraseña actual</label><input id="pAct" type="password" autocomplete="current-password">
+    <label for="pNue">Nueva contraseña (mínimo 6)</label><input id="pNue" type="password" autocomplete="new-password">
+    <div class="error" id="pErr"></div>
+    <button class="btn sec" id="pCambiar">Cambiar contraseña</button>
+    <button class="btn peligro" id="pSalir">Cerrar sesión</button>
+    <button class="btn sec" id="pCerrar">Cerrar</button>`);
+  el('pCerrar').onclick=cerrarModal;
+  el('pSalir').onclick=async()=>{ cerrarModal(); await auth.signOut(); };
+  el('pCambiar').onclick=async()=>{
+    const e=el('pErr'); e.textContent='';
+    if(el('pNue').value.length<6) return e.textContent='La nueva contraseña debe tener al menos 6 caracteres.';
+    try{
+      await S.user.reauthenticateWithCredential(firebase.auth.EmailAuthProvider.credential(S.user.email, el('pAct').value));
+      await S.user.updatePassword(el('pNue').value);
+      toast('Contraseña cambiada ✓'); cerrarModal();
+    }catch(err){ e.textContent=errorTexto(err); }
+  };
+};
+
+/* ================= Android: botón atrás ================= */
+if(esNativo && window.Capacitor.Plugins && window.Capacitor.Plugins.App){
+  window.Capacitor.Plugins.App.addListener('backButton',()=>{
+    if(!el('fondoModal').classList.contains('oculto')) return cerrarModal();
+    if(S.form && S.form.id){ const v=S.form._volver||'capturar'; S.form=null; return irA(v); }
+    if(['catalogo','usuarios','unidades','listas','exportar'].includes(S.pantalla)) return irA('mas');
+    const inicio = esDueno()?'inicio':'capturar';
+    if(S.perfil && S.pantalla!==inicio) return irA(inicio);
+    window.Capacitor.Plugins.App.exitApp();
+  });
+}
+
+/* ================= Service worker (solo web) ================= */
+if('serviceWorker' in navigator && !esNativo && location.protocol==='https:'){
+  navigator.serviceWorker.register('sw.js').catch(()=>{});
+}
+</script>
+</body>
+</html>

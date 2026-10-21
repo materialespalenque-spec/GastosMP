@@ -1,0 +1,56 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ============ AGENDA DE CRÉDITOS (sin cambios) ============
+    // Cada usuario solo puede leer y escribir sus propios datos.
+    match /usuarios/{uid}/{documento=**} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // ============ GASTOS MP ============
+    function signedIn() { return request.auth != null; }
+    function perfil() { return /databases/$(database)/documents/gastos_usuarios/$(request.auth.uid); }
+    function me() { return get(perfil()).data; }
+    function activo() { return signedIn() && exists(perfil()) && me().activo == true; }
+    function esDueno() { return activo() && me().rol == 'dueno'; }
+    function esEncargado() { return activo() && me().rol == 'encargado'; }
+
+    match /gastos_usuarios/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || esDueno());
+      allow write: if esDueno();
+    }
+    match /gastos_catalogo/{id} {
+      allow read: if activo();
+      allow write: if esDueno();
+    }
+    match /gastos_config/{id} {
+      allow read: if activo();
+      allow write: if esDueno();
+    }
+    match /gastos_registros/{id} {
+      allow read: if esDueno()
+        || (esEncargado() && resource.data.creadoPor == request.auth.uid);
+      allow create: if esDueno()
+        || (esEncargado()
+            && request.resource.data.creadoPor == request.auth.uid
+            && request.resource.data.sucursal == me().sucursal
+            && request.resource.data.estado == 'pendiente'
+            && request.resource.data.monto is number
+            && request.resource.data.monto > 0);
+      allow update: if esDueno()
+        || (esEncargado()
+            && resource.data.creadoPor == request.auth.uid
+            && resource.data.estado == 'pendiente'
+            && request.resource.data.estado == 'pendiente'
+            && request.resource.data.creadoPor == request.auth.uid
+            && request.resource.data.sucursal == me().sucursal
+            && request.resource.data.monto is number
+            && request.resource.data.monto > 0);
+      allow delete: if esDueno()
+        || (esEncargado()
+            && resource.data.creadoPor == request.auth.uid
+            && resource.data.estado == 'pendiente');
+    }
+  }
+}

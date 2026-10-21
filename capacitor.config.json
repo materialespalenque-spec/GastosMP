@@ -1,0 +1,8 @@
+{
+  "appId": "mx.materialespalenque.gastos",
+  "appName": "Gastos MP",
+  "webDir": "www",
+  "android": {
+    "adjustMarginsForEdgeToEdge": "force"
+  }
+}

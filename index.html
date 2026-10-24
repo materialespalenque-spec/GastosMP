@@ -28,7 +28,8 @@
   #btnCuenta{background:rgba(255,255,255,.16);border:0;color:#fff;border-radius:20px;padding:6px 12px;font-size:14px;max-width:55%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #estadoConexion{width:10px;height:10px;border-radius:50%;background:#7CFC9A;flex:none}
   #estadoConexion.offline{background:#ffb74d}
-  main{padding:14px 14px calc(90px + env(safe-area-inset-bottom));max-width:720px;margin:0 auto}
+  :root{--kb:0px}
+  main{padding:14px 14px calc(90px + env(safe-area-inset-bottom) + var(--kb));max-width:720px;margin:0 auto}
   nav{position:fixed;bottom:0;left:0;right:0;background:var(--blanco);border-top:1px solid var(--borde);display:flex;padding-bottom:env(safe-area-inset-bottom);z-index:5}
   nav button{flex:1;border:0;background:none;padding:10px 4px 9px;font-size:12px;color:var(--gris);display:flex;flex-direction:column;align-items:center;gap:2px}
   nav button .ico{font-size:20px;line-height:1}
@@ -92,8 +93,8 @@
   .orden{display:flex;flex-direction:column;gap:4px}
   .orden button{border:1px solid var(--borde);background:#fff;border-radius:8px;width:34px;height:30px}
   /* Modal */
-  #fondoModal{position:fixed;inset:0;background:rgba(15,20,30,.45);z-index:20;display:flex;align-items:flex-end;justify-content:center}
-  #modal{background:var(--blanco);width:100%;max-width:560px;max-height:92vh;overflow:auto;border-radius:18px 18px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom))}
+  #fondoModal{position:fixed;inset:0;background:rgba(15,20,30,.45);z-index:20;display:flex;align-items:flex-end;justify-content:center;padding-bottom:var(--kb)}
+  #modal{background:var(--blanco);width:100%;max-width:560px;max-height:calc(92vh - var(--kb));overflow:auto;border-radius:18px 18px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom))}
   @media(min-width:600px){#fondoModal{align-items:center}#modal{border-radius:18px}}
   #modal h2{margin:0 0 6px;font-size:19px}
   .det{font-size:15px}.det div{padding:6px 0;border-bottom:1px solid var(--borde);display:flex;justify-content:space-between;gap:12px}
@@ -102,6 +103,15 @@
   .codigo{font-family:ui-monospace,Menlo,Consolas,monospace;background:#f1f3f7;border-radius:8px;padding:10px;font-size:13px;overflow-wrap:anywhere;user-select:all}
   .check{display:flex;align-items:center;gap:10px;margin-top:12px;font-weight:600;font-size:15px;color:var(--texto)}
   .check input{width:22px;height:22px}
+  .interruptor{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--blanco);border:1px solid var(--borde);border-radius:var(--radio);padding:10px 12px;margin-bottom:10px;font-weight:600;font-size:15px}
+  .interruptor input{appearance:none;-webkit-appearance:none;width:46px;height:28px;border-radius:14px;background:#cfd5df;position:relative;flex:none;margin:0;padding:0;border:0;transition:background .2s}
+  .interruptor input::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:left .2s}
+  .interruptor input:checked{background:var(--azul)} .interruptor input:checked::after{left:21px}
+  .grupoU{border-left:4px solid var(--azul);cursor:pointer}
+  .grupoU .desglose{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+  .grupoU .desglose span{background:var(--azul-claro);color:var(--azul);font-size:12px;font-weight:700;padding:3px 8px;border-radius:10px}
+  .grupoU .flecha{color:var(--gris);font-size:13px;margin-top:6px}
+  .dentro{margin:-2px 0 10px 14px}
 </style>
 </head>
 <body>
@@ -169,7 +179,7 @@ const firebaseConfig = {
   appId: "1:275450861884:web:00b38ecff8970d573ba639"
 };
 
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
 const DOMINIO_USUARIOS = 'gastosmp.app';   // usuario "manuel" → manuel@gastosmp.app (interno)
 const COL = { usuarios:'gastos_usuarios', catalogo:'gastos_catalogo', registros:'gastos_registros', config:'gastos_config', login:'gastos_login' };
 /* Conceptos con descripción obligatoria por omisión (se puede cambiar en Catálogo) */
@@ -579,6 +589,56 @@ function htmlGasto(r, conRegistro){
 }
 const cuenta = r => r.estado!=='rechazado';
 
+/* ---- Agrupar por unidad (chofer + vehículo). Preferencia guardada en este teléfono ---- */
+const PREF_AGRUPAR='gmp_agrupar_unidad';
+function agrupar(){ try{ return localStorage.getItem(PREF_AGRUPAR)==='1'; }catch(e){ return false; } }
+function setAgrupar(v){ try{ localStorage.setItem(PREF_AGRUPAR, v?'1':'0'); }catch(e){} }
+const _abiertos=new Set();
+function htmlInterruptor(){
+  return `<label class="interruptor"><span>🚚 Agrupar por unidad</span><input type="checkbox" id="tgAgrupar" ${agrupar()?'checked':''}></label>`;
+}
+function nombreUnidadGasto(r){ return `${r.chofer} - ${r.vehiculo}`; }
+function resumenUnidades(lista){
+  const g={};
+  lista.filter(r=>r.chofer).forEach(r=>{
+    const k=nombreUnidadGasto(r);
+    const x = g[k] = g[k] || {nombre:k, items:[], total:0, porConcepto:{}, kms:[]};
+    x.items.push(r);
+    if(cuenta(r)){ x.total+=r.monto; x.porConcepto[r.conceptoNombre]=(x.porConcepto[r.conceptoNombre]||0)+r.monto; }
+    if(r.km) x.kms.push(Number(r.km));
+  });
+  return Object.values(g).sort((a,b)=>b.total-a.total);
+}
+function htmlLista(lista, conRegistro, vacio){
+  if(!lista.length) return `<div class="vacio">${vacio}</div>`;
+  if(!agrupar()) return lista.map(r=>htmlGasto(r,conRegistro)).join('');
+  const unidades=resumenUnidades(lista), sinUnidad=lista.filter(r=>!r.chofer);
+  let h='';
+  if(unidades.length){
+    h+=`<div class="titulo">Por unidad</div>`;
+    unidades.forEach(u=>{
+      const abierto=_abiertos.has(u.nombre);
+      const kms = u.kms.length>=2 ? `<div class="linea2">Km registrados: ${Math.min(...u.kms).toLocaleString('es-MX')} → ${Math.max(...u.kms).toLocaleString('es-MX')} (${(Math.max(...u.kms)-Math.min(...u.kms)).toLocaleString('es-MX')} km)</div>` : '';
+      h+=`<div class="item grupoU" data-g="${esc(u.nombre)}"><div class="cuerpo">
+        <div class="linea1"><span>${esc(u.nombre)}</span><span class="imp">${$$(u.total)}</span></div>
+        <div class="linea2">${u.items.length} gasto${u.items.length===1?'':'s'}</div>${kms}
+        <div class="desglose">${Object.entries(u.porConcepto).sort((a,b)=>b[1]-a[1]).map(([c,v])=>`<span>${esc(c)}: ${$$(v)}</span>`).join('')}</div>
+        <div class="flecha">${abierto?'▲ Ocultar gastos':'▼ Ver gastos'}</div></div></div>`;
+      if(abierto) h+=`<div class="dentro">${u.items.map(r=>htmlGasto(r,conRegistro)).join('')}</div>`;
+    });
+  }
+  if(sinUnidad.length){
+    h+=`<div class="titulo" style="margin-top:14px">Otros gastos</div>`+sinUnidad.map(r=>htmlGasto(r,conRegistro)).join('');
+  }
+  return h;
+}
+function conectarAgrupar(){
+  el('tgAgrupar').onchange=e=>{ setAgrupar(e.target.checked); render(); };
+  el('lista').querySelectorAll('.grupoU').forEach(n=>n.onclick=()=>{
+    const k=n.dataset.g; _abiertos.has(k)?_abiertos.delete(k):_abiertos.add(k); render();
+  });
+}
+
 /* ================= MIS GASTOS (encargado) ================= */
 function renderMis(){
   const regs=S.registros, total=regs.filter(cuenta).reduce((s,r)=>s+r.monto,0);
@@ -588,10 +648,12 @@ function renderMis(){
       <div class="kpi"><div class="et">Total de ${nombreMes(S.mesSel)}</div><div class="v">${$$(total)}</div></div>
       <div class="kpi ${pend?'alerta':''}"><div class="et">Por revisar con el dueño</div><div class="v">${pend}</div></div>
     </div>
+    ${htmlInterruptor()}
     <div class="titulo">${regs.length} gasto${regs.length===1?'':'s'} este mes</div>
-    <div id="lista">${regs.length?regs.map(r=>htmlGasto(r,false)).join(''):'<div class="vacio">Todavía no capturas gastos este mes.</div>'}</div>
+    <div id="lista">${htmlLista(regs,false,'Todavía no capturas gastos este mes.')}</div>
     <p class="sub" style="text-align:center;margin-top:16px">Toca un gasto pendiente para corregirlo o borrarlo.</p>`;
-  el('lista').querySelectorAll('.item').forEach(n=>n.onclick=()=>{
+  conectarAgrupar();
+  el('lista').querySelectorAll('.item[data-id]').forEach(n=>n.onclick=()=>{
     const r=S.registros.find(x=>x.id===n.dataset.id); if(!r) return;
     if(r.estado==='pendiente') editarGasto(r,'mis');
     else toast(r.estado==='aprobado'?'Este gasto ya fue aprobado y no se puede cambiar.':'Gasto rechazado: '+(r.motivoRechazo||'sin motivo'));
@@ -629,6 +691,7 @@ function renderInicio(){
     <div class="tarjeta"><div class="titulo">Por grupo</div>${porGrupo.length?tabla(porGrupo):'<div class="vacio">Sin gastos en este mes.</div>'}</div>
     ${porSuc.length?`<div class="tarjeta"><div class="titulo">Operación por sucursal</div>${tabla(porSuc,op)}</div>`:''}
     ${top.length?`<div class="tarjeta"><div class="titulo">Operación por concepto</div>${tabla(top)}</div>`:''}
+    ${agrupar()&&resumenUnidades(regs).length?`<div class="tarjeta"><div class="titulo">Por unidad</div><table class="tabla">${resumenUnidades(regs).map(u=>`<tr><td><b>${esc(u.nombre)}</b><br><span style="color:var(--gris);font-size:12px">${Object.entries(u.porConcepto).map(([c,v])=>`${esc(c)} ${$$(v)}`).join(' · ')}</span></td><td class="n">${$$(u.total)}</td></tr>`).join('')}</table></div>`:''}
     <p class="sub" style="text-align:center">No incluye gastos rechazados. "Dueño" y "Entrada extra" no son gastos de operación.</p>`;
   conectarSelectorMes();
   el('kPend').onclick=()=>{ S.filtros={sucursal:'',concepto:'',estado:'pendiente',creadoPor:''}; irA('gastos'); };
@@ -657,7 +720,8 @@ function renderGastos(){
     </div>
     <div class="resumen"><span>${lista.length} gasto${lista.length===1?'':'s'}</span><b>${$$(total)}</b></div>
     ${pend.length?`<button class="btn verde" id="btnAprobarVis" style="margin:0 0 12px">Aprobar ${pend.length} pendiente${pend.length===1?'':'s'} visibles</button>`:''}
-    <div id="lista">${lista.length?lista.map(r=>htmlGasto(r,true)).join(''):'<div class="vacio">No hay gastos con estos filtros.</div>'}</div>`;
+    ${htmlInterruptor()}
+    <div id="lista">${htmlLista(lista,true,'No hay gastos con estos filtros.')}</div>`;
   conectarSelectorMes();
   const set=(id,k)=>el(id).onchange=e=>{ S.filtros[k]=e.target.value; renderGastos(); };
   set('fSuc','sucursal'); set('fEst','estado'); set('fCon','concepto'); set('fPer','creadoPor');
@@ -670,7 +734,8 @@ function renderGastos(){
     }
     toast(`${pend.length} gasto${pend.length===1?'':'s'} aprobado${pend.length===1?'':'s'} ✓`);
   };
-  el('lista').querySelectorAll('.item').forEach(n=>n.onclick=()=>detalleGasto(n.dataset.id));
+  conectarAgrupar();
+  el('lista').querySelectorAll('.item[data-id]').forEach(n=>n.onclick=()=>detalleGasto(n.dataset.id));
 }
 function detalleGasto(id){
   const r=S.registros.find(x=>x.id===id); if(!r) return;
@@ -1017,6 +1082,26 @@ el('btnCuenta').onclick=()=>{
     }catch(err){ e.textContent=errorTexto(err); }
   };
 };
+
+/* ================= Teclado: que no tape el formulario ================= */
+function setTeclado(px){
+  document.documentElement.style.setProperty('--kb', Math.max(0,Math.round(px))+'px');
+  if(px>0) setTimeout(()=>{ const a=document.activeElement; if(a && /INPUT|TEXTAREA|SELECT/.test(a.tagName)) a.scrollIntoView({block:'center',behavior:'smooth'}); },80);
+}
+document.addEventListener('focusin',e=>{
+  if(/INPUT|TEXTAREA/.test(e.target.tagName)) setTimeout(()=>e.target.scrollIntoView({block:'center',behavior:'smooth'}),350);
+});
+if(esNativo && window.Capacitor.Plugins && window.Capacitor.Plugins.Keyboard){
+  // En Android la pantalla a veces no se encoge con el teclado: medimos cuánto falta y lo agregamos como espacio abajo.
+  const K=window.Capacitor.Plugins.Keyboard; let altoBase=window.innerHeight, abierto=false;
+  window.addEventListener('resize',()=>{ if(!abierto) altoBase=window.innerHeight; });
+  K.addListener('keyboardWillShow',()=>{ abierto=true; });
+  K.addListener('keyboardDidShow',info=>{ abierto=true; const encogio=Math.max(0,altoBase-window.innerHeight); setTeclado((info.keyboardHeight||0)-encogio); });
+  K.addListener('keyboardWillHide',()=>{ abierto=false; setTeclado(0); });
+} else if(window.visualViewport){
+  const vv=window.visualViewport;
+  vv.addEventListener('resize',()=>{ const kb=window.innerHeight-vv.height-vv.offsetTop; setTeclado(kb>80?kb:0); });
+}
 
 /* ================= Android: botón atrás ================= */
 if(esNativo && window.Capacitor.Plugins && window.Capacitor.Plugins.App){

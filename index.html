@@ -179,7 +179,7 @@ const firebaseConfig = {
   appId: "1:275450861884:web:00b38ecff8970d573ba639"
 };
 
-const VERSION = '1.3.0';
+const VERSION = '1.3.1';
 const DOMINIO_USUARIOS = 'gastosmp.app';   // usuario "manuel" → manuel@gastosmp.app (interno)
 const COL = { usuarios:'gastos_usuarios', catalogo:'gastos_catalogo', registros:'gastos_registros', config:'gastos_config', login:'gastos_login',
   apartados:'apartados_registros', cajaMov:'caja_chica_mov' };
@@ -1099,7 +1099,7 @@ function suscribirApartados(){
 function sucursalesTienda(){ return (S.config.sucursales||[]).filter(s=>s!=='General'); }
 function apFormNuevo(){
   return {fecha:hoy(), sucursal: esDueno() ? (S.apForm&&S.apForm.sucursal) || sucursalesTienda()[0] || '' : S.perfil.sucursal,
-    c_kontempo:'', c_cemento:'', v_kontempo:'', v_cemento:'', ef:'', _editando:null};
+    c_kontempo:'', c_cemento:'', ef:'', _editando:null};
 }
 function renderApartado(){
   if(!S.apForm) S.apForm=apFormNuevo();
@@ -1109,17 +1109,16 @@ function renderApartado(){
     <div id="apKpi"></div>
     <div class="tarjeta">
       <div class="titulo" style="margin-top:0">Apartado del día</div>
-      <p class="sub" style="margin:0">Datos del reporte de SICAR por categoría y del corte de caja.</p>
+      <p class="sub" style="margin:0">Costo del reporte de SICAR por categoría y efectivo del corte de caja.</p>
       <div class="fila">
         <div><label for="aFecha">Fecha</label><input id="aFecha" type="date" value="${esc(f.fecha)}" max="${hoy()}"></div>
         <div>${esDueno()?`<label for="aSuc">Sucursal</label><select id="aSuc">${sucursalesTienda().map(s=>`<option ${s===f.sucursal?'selected':''}>${esc(s)}</option>`).join('')}</select>`
           :`<label>Sucursal</label><div style="font-weight:700;padding:12px 2px">${esc(f.sucursal||'—')}</div>`}</div>
       </div>
       <div id="aExiste"></div>
-      ${LINEAS_AP.map(([k,n])=>`<div class="fila">
-        <div><label for="aC_${k}">Costo ${n}</label><input id="aC_${k}" data-k="c_${k}" inputmode="decimal" placeholder="$0.00" value="${esc(f['c_'+k])}"></div>
-        <div><label for="aV_${k}">Venta <span style="font-weight:400">(opcional)</span></label><input id="aV_${k}" data-k="v_${k}" inputmode="decimal" placeholder="$0.00" value="${esc(f['v_'+k])}"></div>
-      </div>`).join('')}
+      <div class="fila">${LINEAS_AP.map(([k,n])=>`
+        <div><label for="aC_${k}">Costo ${n}</label><input id="aC_${k}" data-k="c_${k}" inputmode="decimal" placeholder="$0.00" value="${esc(f['c_'+k])}"></div>`).join('')}
+      </div>
       <label for="aEf">Efectivo total del corte de caja</label>
       <input id="aEf" data-k="ef" class="monto" inputmode="decimal" placeholder="$0.00" value="${esc(f.ef)}">
       <div id="aCalc"></div>
@@ -1142,23 +1141,22 @@ function pintarCalcAp(){
   if(!(ck>=0&&cc>=0) || !(ef>=0)){ n.innerHTML=''; return; }
   const x=calcApartado(ck,cc,ef);
   if(x.tot===0){ n.innerHTML=`<div class="aviso" style="margin:14px 0 0">Sin ventas de productos a crédito: no hay que apartar.</div>`; return; }
-  const margen=LINEAS_AP.map(([k,nom])=>{ const v=montoOpc(f['v_'+k]), c=k==='kontempo'?ck:cc;
-    return v>0&&c>0 ? `${nom} ${((v-c)/v*100).toFixed(1)}%` : ''; }).filter(Boolean).join(' · ');
   n.innerHTML=`<div class="tarjeta" style="background:var(--verde-claro);border-color:transparent;margin:14px 0 0">
     <div style="font-size:14px;color:var(--verde);font-weight:700">Aparta en el sobre de créditos</div>
     <div style="font-size:30px;font-weight:800;color:var(--verde)">${$$(x.efA)}</div>
     ${x.bT>0?`<div style="font-size:14px;margin-top:6px">El efectivo no alcanzó: <b>${$$(x.bT)}</b> quedan comprometidos en banco (los cubre el dueño).</div>`:''}
-    ${margen?`<div class="sub" style="margin:6px 0 0">Margen: ${margen}</div>`:''}</div>`;
+</div>`;
 }
 function pintarExisteAp(){
   const f=S.apForm, n=el('aExiste'); if(!n) return;
   const ex=S.apartados.find(a=>a.id===`${f.sucursal}_${f.fecha}`);
-  const editable = f._editando && S.apartados.find(a=>a.id===f._editando && a.estado==='en_sucursal');
+  const editado = f._editando && S.apartados.find(a=>a.id===f._editando);
+  const editable = editado && (editado.estado==='en_sucursal' || esDueno());
   el('aBorrar').classList.toggle('oculto', !editable);
   el('aGuardar').textContent = f._editando ? 'Guardar cambios' : 'Guardar apartado';
   n.innerHTML = f._editando
-    ? `<div class="editando" style="margin-top:12px"><span>Corrigiendo un apartado capturado</span><button class="btn chico sec" id="aCancelar" type="button">Cancelar</button></div>`
-    : ex ? `<div class="aviso" style="margin:12px 0 0">Ya hay apartado de esta fecha (${$$(ex.efTotal)} en sobre${ex.estado!=='en_sucursal'?', ya recogido':''}).${ex.estado==='en_sucursal'?' Tócalo en la lista de abajo para corregirlo.':''}</div>` : '';
+    ? `<div class="editando" style="margin-top:12px"><span>Corrigiendo un apartado ${editado&&editado.estado!=='en_sucursal'?'<b>ya recogido</b> (se ajusta lo esperado de esa recolección)':'capturado'}</span><button class="btn chico sec" id="aCancelar" type="button">Cancelar</button></div>`
+    : ex ? `<div class="aviso" style="margin:12px 0 0">Ya hay apartado de esta fecha (${$$(ex.efTotal)} en sobre${ex.estado!=='en_sucursal'?', ya recogido':''}).${ex.estado==='en_sucursal'||esDueno()?' Tócalo en la lista de abajo para corregirlo.':''}</div>` : '';
   el('aCancelar')&&(el('aCancelar').onclick=()=>{ S.apForm=apFormNuevo(); renderApartado(); });
 }
 function renderApartadoLista(){
@@ -1180,42 +1178,67 @@ function renderApartadoLista(){
 }
 function editarApartado(id){
   const a=S.apartados.find(x=>x.id===id); if(!a) return;
-  if(a.estado!=='en_sucursal') return toast('Este sobre ya fue recogido; ya no se puede cambiar.');
+  if(a.estado!=='en_sucursal' && !esDueno()) return toast('Este sobre ya fue recogido; si hay un error, avisa al dueño.');
   const s=v=>v?String(v):'';
   S.apForm={fecha:a.fecha, sucursal:a.sucursal, c_kontempo:s(a.costo&&a.costo.kontempo), c_cemento:s(a.costo&&a.costo.cemento),
-    v_kontempo:s(a.venta&&a.venta.kontempo), v_cemento:s(a.venta&&a.venta.cemento), ef:String(a.efectivoCorte??''), _editando:id};
+    ef:String(a.efectivoCorte??''), _editando:id};
   renderApartado(); window.scrollTo(0,0);
 }
 async function guardarApartado(){
   const f=S.apForm, e=el('aErr'); e.textContent='';
-  const ck=montoOpc(f.c_kontempo), cc=montoOpc(f.c_cemento), ef=parseMonto(f.ef), vk=montoOpc(f.v_kontempo), vc=montoOpc(f.v_cemento);
+  const ck=montoOpc(f.c_kontempo), cc=montoOpc(f.c_cemento), ef=parseMonto(f.ef);
   if(!f.sucursal) return e.textContent='Tu usuario no tiene sucursal asignada. Avisa al dueño.';
   if(!f.fecha) return e.textContent='Escribe la fecha.';
   if(!(ck>=0&&cc>=0)) return e.textContent='Revisa los costos: deben ser números.';
-  if(!(vk>=0&&vc>=0)) return e.textContent='Revisa las ventas: deben ser números.';
   if(!(ef>=0)) return e.textContent='Escribe el efectivo total del corte (aunque sea 0).';
   const id=`${f.sucursal}_${f.fecha}`, ex=S.apartados.find(a=>a.id===id);
-  if(ex && ex.estado!=='en_sucursal') return e.textContent='El sobre de esa fecha ya fue recogido; ya no se puede cambiar.';
+  const orig = f._editando ? S.apartados.find(a=>a.id===f._editando) : null;
+  if(ex && ex.estado!=='en_sucursal' && f._editando!==id) return e.textContent='Ya hay un apartado recogido en esa fecha y sucursal. Corrige ese en lugar de crear otro.';
+  if(orig && orig.estado!=='en_sucursal' && !esDueno()) return e.textContent='Este sobre ya fue recogido; si hay un error, avisa al dueño.';
   if(ex && f._editando!==id && !(await confirmar('Reemplazar apartado',`Ya hay apartado de ${f.sucursal} del ${fechaCorta(f.fecha)} (${$$(ex.efTotal)} en sobre). Se reemplazará con estos números.`,'Reemplazar','verde'))) return;
   const x=calcApartado(ck,cc,ef);
   const datos={fecha:f.fecha, mes:mesDe(f.fecha), sucursal:f.sucursal,
-    costo:{kontempo:r2(ck),cemento:r2(cc)}, venta:{kontempo:r2(vk),cemento:r2(vc)}, efectivoCorte:r2(ef),
+    costo:{kontempo:r2(ck),cemento:r2(cc)}, efectivoCorte:r2(ef),
     efectivo:{kontempo:x.efK,cemento:x.efC}, banco:{kontempo:x.bK,cemento:x.bC},
     costoTotal:x.tot, efTotal:x.efA, bancoTotal:x.bT, estado:'en_sucursal',
     creadoPor:S.user.uid, usuario:miUsuario(), creadoPorNombre:S.perfil.nombre||usuarioDeEmail(S.user.email),
-    creadoEn: ex&&ex.creadoEn ? ex.creadoEn : TS(), actualizadoEn:TS()};
+    creadoEn: (orig||ex)&&(orig||ex).creadoEn ? (orig||ex).creadoEn : TS(), actualizadoEn:TS()};
   const b=db.batch();
+  if(orig && orig.estado!=='en_sucursal'){ // el dueño corrige un sobre ya recogido: conserva su recolección
+    Object.assign(datos,{estado:orig.estado, recoleccionId:orig.recoleccionId||null, recogidoEn:orig.recogidoEn||null,
+      creadoPor:orig.creadoPor||datos.creadoPor, usuario:orig.usuario||'', creadoPorNombre:orig.creadoPorNombre||datos.creadoPorNombre, corregidoPor:S.perfil.nombre||''});
+  }
   b.set(db.collection(COL.apartados).doc(id), datos);
   if(f._editando && f._editando!==id) b.delete(db.collection(COL.apartados).doc(f._editando)); // cambió la fecha
+  if(orig && orig.recoleccionId) await ajustarRecoleccion(b, orig.recoleccionId, f._editando, id, x.efA);
   b.commit().catch(err=>toast('No se pudo guardar: '+errorTexto(err),6000));
   toast(x.tot>0 ? `Guardado ✓ Aparta ${$$(x.efA)} en el sobre` : 'Guardado ✓ (sin productos a crédito)', 4000);
   S.apForm=apFormNuevo(); renderApartado();
 }
 async function borrarApartado(){
   const id=S.apForm._editando; if(!id) return;
-  if(!(await confirmar('Borrar apartado','Se borrará el apartado de esta fecha.','Borrar'))) return;
-  db.collection(COL.apartados).doc(id).delete().catch(e=>toast('No se pudo borrar: '+errorTexto(e),5000));
+  const a=S.apartados.find(x=>x.id===id);
+  const recogido = a && a.estado!=='en_sucursal';
+  if(!(await confirmar('Borrar apartado', recogido?'Este sobre ya fue recogido. Se borrará y se ajustará lo esperado de esa recolección (si el dinero sí llegó, aparecerá como sobrante).':'Se borrará el apartado de esta fecha.','Borrar'))) return;
+  const b=db.batch(); b.delete(db.collection(COL.apartados).doc(id));
+  if(a && a.recoleccionId) await ajustarRecoleccion(b, a.recoleccionId, id, null, 0);
+  b.commit().catch(e=>toast('No se pudo borrar: '+errorTexto(e),5000));
   toast('Apartado borrado'); S.apForm=apFormNuevo(); renderApartado();
+}
+
+
+/* El dueño corrige o borra un apartado ya recogido: se recalcula lo "esperado" de su recolección
+   para que la Agenda siga cuadrando (sobres + en mi poder + banco = apartado). */
+async function ajustarRecoleccion(b, movId, idViejo, idNuevo, efNuevo){
+  try{
+    const ref=db.collection('apartados_mov').doc(movId), snap=await ref.get();
+    if(!snap.exists) return;
+    const m=snap.data();
+    let ids=(m.registroIds||[]).filter(r=>r!==idViejo);
+    if(idNuevo) ids.push(idNuevo);
+    const esperado=r2(ids.reduce((s,r)=> s + (r===idNuevo ? efNuevo : ((S.apartados.find(a=>a.id===r)||{}).efTotal||0)), 0));
+    b.update(ref,{registroIds:ids, esperado});
+  }catch(e){ toast('No se pudo ajustar la recolección: '+errorTexto(e),6000); }
 }
 
 /* ================= CAJA CHICA ================= */

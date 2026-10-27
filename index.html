@@ -179,13 +179,14 @@ const firebaseConfig = {
   appId: "1:275450861884:web:00b38ecff8970d573ba639"
 };
 
-const VERSION = '1.2.0';
+const VERSION = '1.3.0';
 const DOMINIO_USUARIOS = 'gastosmp.app';   // usuario "manuel" → manuel@gastosmp.app (interno)
-const COL = { usuarios:'gastos_usuarios', catalogo:'gastos_catalogo', registros:'gastos_registros', config:'gastos_config', login:'gastos_login' };
+const COL = { usuarios:'gastos_usuarios', catalogo:'gastos_catalogo', registros:'gastos_registros', config:'gastos_config', login:'gastos_login',
+  apartados:'apartados_registros', cajaMov:'caja_chica_mov' };
 /* Conceptos con descripción obligatoria por omisión (se puede cambiar en Catálogo) */
 const DESC_OBLIG_DEF = ['Otros gastos de operación','Reparaciones y mantenimiento del local'];
 const GRUPOS = ['Operación','Financiero','Impuestos','Dueño','Activos','Entrada extra'];
-const FORMAS_PAGO_INICIALES = ['Efectivo caja','Transferencia','Tarjeta de crédito','Tarjeta de débito'];
+const FORMAS_PAGO_INICIALES = ['Caja chica','Efectivo caja','Transferencia','Tarjeta de crédito','Tarjeta de débito'];
 const SUCURSALES_INICIALES = ['Periférico','Libertad','General'];
 
 /* Catálogo inicial: mismos nombres que la hoja CATALOGO del Excel */
@@ -235,6 +236,7 @@ const S = {
   usuarios:[], registros:[], pendientesSubir:0, mesSel:mesDe(hoy()), pantalla:null,
   filtros:{sucursal:'', concepto:'', estado:'', creadoPor:''},
   form:null, listeners:[], listenerRegistros:null, catalogoListo:false,
+  apartados:[], apForm:null, cajaGastos:[], cajaMov:[],
 };
 
 /* ================= Utilidades ================= */
@@ -355,8 +357,9 @@ function iniciarApp(){
     el('estadoConexion').title = snap.metadata.fromCache ? 'Sin conexión: lo que captures se sube al volver la señal' : 'En línea';
     if(snap.exists){
       const d=snap.data();
-      S.config = { sucursales:d.sucursales||SUCURSALES_INICIALES, formasPago:d.formasPago||FORMAS_PAGO_INICIALES, unidades:d.unidades||[] };
+      S.config = { sucursales:d.sucursales||SUCURSALES_INICIALES, formasPago:d.formasPago||FORMAS_PAGO_INICIALES, unidades:d.unidades||[], cajaChica:d.cajaChica||{} };
       S.configExiste = true;
+      asegurarFormaCajaChica();
     } else S.configExiste = false;
     refrescar('config');
   }, err=>toast('Configuración: '+errorTexto(err))));
@@ -368,6 +371,8 @@ function iniciarApp(){
     }));
   }
   suscribirRegistros();
+  suscribirApartados();
+  suscribirCajaChica();
   armarNav();
   irA(esDueno() ? 'inicio' : 'capturar');
 }
@@ -396,7 +401,7 @@ function suscribirRegistros(){
 
 /* ================= Navegación ================= */
 const NAV_DUENO = [['inicio','📊','Inicio'],['capturar','➕','Capturar'],['gastos','📋','Gastos'],['mas','⚙️','Más']];
-const NAV_ENC   = [['capturar','➕','Capturar'],['mis','📋','Mis gastos']];
+const NAV_ENC   = [['capturar','➕','Capturar'],['mis','📋','Mis gastos'],['apartado','💵','Apartado']];
 function armarNav(){
   const items = esDueno()?NAV_DUENO:NAV_ENC;
   el('nav').innerHTML = items.map(([id,ico,t])=>`<button data-ir="${id}"><span class="ico">${ico}</span>${t}</button>`).join('');
@@ -404,7 +409,7 @@ function armarNav(){
 }
 function irA(p){
   S.pantalla=p;
-  el('nav').querySelectorAll('button').forEach(b=>b.classList.toggle('activo', b.dataset.ir===p || (['catalogo','usuarios','unidades','listas','exportar'].includes(p) && b.dataset.ir==='mas')));
+  el('nav').querySelectorAll('button').forEach(b=>b.classList.toggle('activo', b.dataset.ir===p || (['catalogo','usuarios','unidades','listas','exportar','apartado','cajachica'].includes(p) && b.dataset.ir==='mas')));
   render(); window.scrollTo(0,0);
 }
 /* Re-render solo si la pantalla actual depende del dato que cambió.
@@ -412,20 +417,23 @@ function irA(p){
 function refrescar(que){
   const p=S.pantalla; if(!p) return;
   if(p==='capturar'){ if(que==='catalogo'||que==='config') renderOpcionesCaptura(); return; }
-  const dep = { inicio:['registros','catalogo'], gastos:['registros','catalogo','usuarios','config'], mis:['registros'],
+  if(p==='apartado'){ if(que==='apartados') renderApartadoLista(); return; }
+  const dep = { inicio:['registros','catalogo'], gastos:['registros','catalogo','usuarios','config'], mis:['registros','caja','config'], cajachica:['caja','config'],
     catalogo:['catalogo'], usuarios:['usuarios','config'], unidades:['config'], listas:['config'], mas:['catalogo','config'], exportar:[] };
   if((dep[p]||[]).includes(que)) render();
 }
 function render(){
   const f = { inicio:renderInicio, capturar:renderCapturar, gastos:renderGastos, mis:renderMis, mas:renderMas,
-    catalogo:renderCatalogo, usuarios:renderUsuarios, unidades:renderUnidades, listas:renderListas, exportar:renderExportar }[S.pantalla];
+    catalogo:renderCatalogo, usuarios:renderUsuarios, unidades:renderUnidades, listas:renderListas, exportar:renderExportar,
+    apartado:renderApartado, cajachica:renderCajaChica }[S.pantalla];
   f && f();
 }
 
 /* ================= CAPTURAR ================= */
 function formNuevo(){
   return { id:null, conceptoId:'', monto:'', descripcion:'', unidadId:'', km:'', fecha:hoy(),
-    sucursal: esDueno() ? 'General' : S.perfil.sucursal, formaPago:'Efectivo caja', tieneTicket:true };
+    sucursal: esDueno() ? 'General' : S.perfil.sucursal,
+    formaPago: (!esDueno() && (S.config.formasPago||[]).includes('Caja chica')) ? 'Caja chica' : 'Efectivo caja', tieneTicket:true };
 }
 function conceptosVisibles(){
   return catalogoOrdenado().filter(c=>c.activo!==false && (esDueno() || c.quienCaptura==='encargado'));
@@ -543,6 +551,10 @@ function guardarGasto(){
     unidadId: u?u.id:'', chofer: u?u.chofer:'', vehiculo: u?u.vehiculo:'', km: (pide && f.km) ? parseInt(f.km,10) : null,
   };
   let promesa, nuevo=!f.id;
+  const previo = !nuevo ? S.registros.find(x=>x.id===f.id) : null;
+  if(nuevo || (previo && previo.reposicionId===undefined)) datos.reposicionId='';
+  let avisoCaja='';
+  if(nuevo && datos.formaPago==='Caja chica' && datos.sucursal){ const c=cajaInfo(datos.sucursal); avisoCaja=` · Caja chica: quedan ${$$(c.debe-monto)}`; }
   if(nuevo){
     const ref=db.collection(COL.registros).doc();
     Object.assign(datos,{ estado: esDueno()?'aprobado':'pendiente', motivoRechazo:'',
@@ -554,7 +566,7 @@ function guardarGasto(){
   }
   // No se espera al servidor: si no hay señal queda en cola y se sube sola.
   promesa.catch(e=>toast('No se pudo guardar: '+errorTexto(e),5000));
-  toast(nuevo ? `Guardado ✓ ${c?c.nombre:''} ${$$(monto)}` : 'Cambios guardados ✓');
+  toast(nuevo ? `Guardado ✓ ${c?c.nombre:''} ${$$(monto)}${avisoCaja}` : 'Cambios guardados ✓', avisoCaja?4000:2600);
   const volver=f._volver;
   S.form=formNuevo();
   if(!nuevo && volver) irA(volver); else renderCapturar();
@@ -647,6 +659,7 @@ function renderMis(){
     <div class="kpis">
       <div class="kpi"><div class="et">Total de ${nombreMes(S.mesSel)}</div><div class="v">${$$(total)}</div></div>
       <div class="kpi ${pend?'alerta':''}"><div class="et">Por revisar con el dueño</div><div class="v">${pend}</div></div>
+      ${S.perfil.sucursal && (S.config.formasPago||[]).includes('Caja chica') ? htmlCajaKpi(S.perfil.sucursal) : ''}
     </div>
     ${htmlInterruptor()}
     <div class="titulo">${regs.length} gasto${regs.length===1?'':'s'} este mes</div>
@@ -772,6 +785,8 @@ function renderMas(){
   const items=[['catalogo','🗂️','Catálogo de conceptos',`${S.catalogo.filter(c=>c.activo!==false).length} activos`],
     ['usuarios','👥','Usuarios','Encargados y accesos'],
     ['unidades','🚚','Unidades',`${(S.config.unidades||[]).filter(u=>u.activo!==false).length} activas`],
+    ['apartado','💵','Apartado de créditos','Sobres por sucursal (lo capturan los encargados)'],
+    ['cajachica','🪙','Caja chica','Fondo, reposición y arqueo por sucursal'],
     ['listas','🏪','Sucursales y formas de pago',''],
     ['exportar','📤','Exportar a Excel','Para pegar en tu estado de resultados']];
   el('contenido').innerHTML = `<div class="menu">${items.map(([id,ico,t,s])=>`<div class="item" data-ir="${id}"><span class="ico">${ico}</span><div class="cuerpo"><div class="linea1">${t}</div><div class="linea2">${s}</div></div><span>›</span></div>`).join('')}</div>
@@ -1059,6 +1074,243 @@ function cargarSheetJS(){
     s.onload=res; s.onerror=()=>rej(new Error('No se pudo cargar el generador de Excel (¿sin internet?)')); document.head.appendChild(s); });
 }
 
+/* ================= APARTADO DE CRÉDITOS ================= */
+/* El encargado captura del cierre de SICAR: costo de cada categoría a crédito y el efectivo del corte.
+   Regla: el apartado sale primero del efectivo; lo que no alcance queda "comprometido en banco".
+   Si el efectivo no alcanza para las dos líneas, se reparte en proporción a su costo. */
+const LINEAS_AP = [['kontempo','Kontempo (Cemex)'],['cemento','Cemento']];
+const r2 = n => Math.round((n||0)*100)/100;
+const montoOpc = v => String(v??'').trim()==='' ? 0 : parseMonto(v);
+function calcApartado(ck,cc,ef){
+  const tot=r2(ck+cc), efA=r2(Math.min(tot,Math.max(0,ef)));
+  const efK = tot>0 ? r2(efA*ck/tot) : 0, efC=r2(efA-efK);
+  return {tot, efA, bT:r2(tot-efA), efK, efC, bK:r2(ck-efK), bC:r2(cc-efC)};
+}
+let _apErr=false;
+function suscribirApartados(){
+  let q=db.collection(COL.apartados);
+  if(!esDueno()){ if(!S.perfil.sucursal) return; q=q.where('sucursal','==',S.perfil.sucursal); }
+  S.listeners.push(q.onSnapshot({includeMetadataChanges:true}, snap=>{
+    S.apartados=snap.docs.map(d=>({id:d.id,...d.data(),_subir:d.metadata.hasPendingWrites}))
+      .sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||'')||(a.sucursal||'').localeCompare(b.sucursal||''));
+    refrescar('apartados');
+  }, err=>{ if(!_apErr){ _apErr=true; toast('Apartados: '+errorTexto(err)+' (¿ya publicaste las reglas nuevas?)',6000); } }));
+}
+function sucursalesTienda(){ return (S.config.sucursales||[]).filter(s=>s!=='General'); }
+function apFormNuevo(){
+  return {fecha:hoy(), sucursal: esDueno() ? (S.apForm&&S.apForm.sucursal) || sucursalesTienda()[0] || '' : S.perfil.sucursal,
+    c_kontempo:'', c_cemento:'', v_kontempo:'', v_cemento:'', ef:'', _editando:null};
+}
+function renderApartado(){
+  if(!S.apForm) S.apForm=apFormNuevo();
+  const f=S.apForm;
+  el('contenido').innerHTML = `
+    ${esDueno()?cabecera('Apartado de créditos'):''}
+    <div id="apKpi"></div>
+    <div class="tarjeta">
+      <div class="titulo" style="margin-top:0">Apartado del día</div>
+      <p class="sub" style="margin:0">Datos del reporte de SICAR por categoría y del corte de caja.</p>
+      <div class="fila">
+        <div><label for="aFecha">Fecha</label><input id="aFecha" type="date" value="${esc(f.fecha)}" max="${hoy()}"></div>
+        <div>${esDueno()?`<label for="aSuc">Sucursal</label><select id="aSuc">${sucursalesTienda().map(s=>`<option ${s===f.sucursal?'selected':''}>${esc(s)}</option>`).join('')}</select>`
+          :`<label>Sucursal</label><div style="font-weight:700;padding:12px 2px">${esc(f.sucursal||'—')}</div>`}</div>
+      </div>
+      <div id="aExiste"></div>
+      ${LINEAS_AP.map(([k,n])=>`<div class="fila">
+        <div><label for="aC_${k}">Costo ${n}</label><input id="aC_${k}" data-k="c_${k}" inputmode="decimal" placeholder="$0.00" value="${esc(f['c_'+k])}"></div>
+        <div><label for="aV_${k}">Venta <span style="font-weight:400">(opcional)</span></label><input id="aV_${k}" data-k="v_${k}" inputmode="decimal" placeholder="$0.00" value="${esc(f['v_'+k])}"></div>
+      </div>`).join('')}
+      <label for="aEf">Efectivo total del corte de caja</label>
+      <input id="aEf" data-k="ef" class="monto" inputmode="decimal" placeholder="$0.00" value="${esc(f.ef)}">
+      <div id="aCalc"></div>
+      <button class="btn" id="aGuardar">Guardar apartado</button>
+      <button class="btn peligro oculto" id="aBorrar">Borrar este apartado</button>
+      <div class="error" id="aErr"></div>
+    </div>
+    <div class="titulo">Últimos apartados</div>
+    <div id="aLista"></div>`;
+  el('contenido').querySelectorAll('input[data-k]').forEach(i=>i.addEventListener('input',e=>{ f[e.target.dataset.k]=e.target.value; pintarCalcAp(); }));
+  el('aFecha').addEventListener('change',e=>{ f.fecha=e.target.value; pintarExisteAp(); });
+  el('aSuc')&&el('aSuc').addEventListener('change',e=>{ f.sucursal=e.target.value; renderApartadoLista(); });
+  el('aGuardar').onclick=guardarApartado;
+  el('aBorrar').onclick=borrarApartado;
+  pintarCalcAp(); renderApartadoLista();
+}
+function pintarCalcAp(){
+  const f=S.apForm, n=el('aCalc'); if(!n) return;
+  const ck=montoOpc(f.c_kontempo), cc=montoOpc(f.c_cemento), ef=parseMonto(f.ef);
+  if(!(ck>=0&&cc>=0) || !(ef>=0)){ n.innerHTML=''; return; }
+  const x=calcApartado(ck,cc,ef);
+  if(x.tot===0){ n.innerHTML=`<div class="aviso" style="margin:14px 0 0">Sin ventas de productos a crédito: no hay que apartar.</div>`; return; }
+  const margen=LINEAS_AP.map(([k,nom])=>{ const v=montoOpc(f['v_'+k]), c=k==='kontempo'?ck:cc;
+    return v>0&&c>0 ? `${nom} ${((v-c)/v*100).toFixed(1)}%` : ''; }).filter(Boolean).join(' · ');
+  n.innerHTML=`<div class="tarjeta" style="background:var(--verde-claro);border-color:transparent;margin:14px 0 0">
+    <div style="font-size:14px;color:var(--verde);font-weight:700">Aparta en el sobre de créditos</div>
+    <div style="font-size:30px;font-weight:800;color:var(--verde)">${$$(x.efA)}</div>
+    ${x.bT>0?`<div style="font-size:14px;margin-top:6px">El efectivo no alcanzó: <b>${$$(x.bT)}</b> quedan comprometidos en banco (los cubre el dueño).</div>`:''}
+    ${margen?`<div class="sub" style="margin:6px 0 0">Margen: ${margen}</div>`:''}</div>`;
+}
+function pintarExisteAp(){
+  const f=S.apForm, n=el('aExiste'); if(!n) return;
+  const ex=S.apartados.find(a=>a.id===`${f.sucursal}_${f.fecha}`);
+  const editable = f._editando && S.apartados.find(a=>a.id===f._editando && a.estado==='en_sucursal');
+  el('aBorrar').classList.toggle('oculto', !editable);
+  el('aGuardar').textContent = f._editando ? 'Guardar cambios' : 'Guardar apartado';
+  n.innerHTML = f._editando
+    ? `<div class="editando" style="margin-top:12px"><span>Corrigiendo un apartado capturado</span><button class="btn chico sec" id="aCancelar" type="button">Cancelar</button></div>`
+    : ex ? `<div class="aviso" style="margin:12px 0 0">Ya hay apartado de esta fecha (${$$(ex.efTotal)} en sobre${ex.estado!=='en_sucursal'?', ya recogido':''}).${ex.estado==='en_sucursal'?' Tócalo en la lista de abajo para corregirlo.':''}</div>` : '';
+  el('aCancelar')&&(el('aCancelar').onclick=()=>{ S.apForm=apFormNuevo(); renderApartado(); });
+}
+function renderApartadoLista(){
+  if(!el('aLista')) return;
+  const f=S.apForm, mios=S.apartados.filter(a=>a.sucursal===f.sucursal);
+  const enSobre=mios.filter(a=>a.estado==='en_sucursal'), tot=r2(enSobre.reduce((s,a)=>s+(a.efTotal||0),0));
+  const desde=enSobre.map(a=>a.fecha).sort()[0];
+  el('apKpi').innerHTML=`<div class="kpis">
+    <div class="kpi ${tot>0?'alerta':''}"><div class="et">En sobre sin recoger</div><div class="v">${$$(tot)}</div></div>
+    <div class="kpi"><div class="et">Apartados sin recoger</div><div class="v">${enSobre.length}${desde?`<div style="font-size:12px;font-weight:600;color:var(--gris)">desde ${fechaCorta(desde)}</div>`:''}</div></div></div>`;
+  const lista=mios.slice(0,20);
+  el('aLista').innerHTML = lista.length ? lista.map(a=>`<div class="item" data-ap="${esc(a.id)}" style="cursor:pointer"><div class="cuerpo">
+      <div class="linea1"><span>${fechaCorta(a.fecha)}</span><span class="imp">${$$(a.efTotal)}</span></div>
+      <div class="linea2">Costo Kontempo ${$$(a.costo&&a.costo.kontempo)} · Cemento ${$$(a.costo&&a.costo.cemento)}${a.bancoTotal>0?` · <b>banco ${$$(a.bancoTotal)}</b>`:''}</div>
+      <div style="margin-top:6px"><span class="chip ${a.estado==='en_sucursal'?'pendiente':'aprobado'}">${a.estado==='en_sucursal'?'en sobre':'recogido'}</span>${a._subir?'<span class="chip subir">por subir</span>':''}</div>
+    </div></div>`).join('') : '<div class="vacio">Todavía no hay apartados.</div>';
+  el('aLista').querySelectorAll('[data-ap]').forEach(n=>n.onclick=()=>editarApartado(n.dataset.ap));
+  pintarExisteAp();
+}
+function editarApartado(id){
+  const a=S.apartados.find(x=>x.id===id); if(!a) return;
+  if(a.estado!=='en_sucursal') return toast('Este sobre ya fue recogido; ya no se puede cambiar.');
+  const s=v=>v?String(v):'';
+  S.apForm={fecha:a.fecha, sucursal:a.sucursal, c_kontempo:s(a.costo&&a.costo.kontempo), c_cemento:s(a.costo&&a.costo.cemento),
+    v_kontempo:s(a.venta&&a.venta.kontempo), v_cemento:s(a.venta&&a.venta.cemento), ef:String(a.efectivoCorte??''), _editando:id};
+  renderApartado(); window.scrollTo(0,0);
+}
+async function guardarApartado(){
+  const f=S.apForm, e=el('aErr'); e.textContent='';
+  const ck=montoOpc(f.c_kontempo), cc=montoOpc(f.c_cemento), ef=parseMonto(f.ef), vk=montoOpc(f.v_kontempo), vc=montoOpc(f.v_cemento);
+  if(!f.sucursal) return e.textContent='Tu usuario no tiene sucursal asignada. Avisa al dueño.';
+  if(!f.fecha) return e.textContent='Escribe la fecha.';
+  if(!(ck>=0&&cc>=0)) return e.textContent='Revisa los costos: deben ser números.';
+  if(!(vk>=0&&vc>=0)) return e.textContent='Revisa las ventas: deben ser números.';
+  if(!(ef>=0)) return e.textContent='Escribe el efectivo total del corte (aunque sea 0).';
+  const id=`${f.sucursal}_${f.fecha}`, ex=S.apartados.find(a=>a.id===id);
+  if(ex && ex.estado!=='en_sucursal') return e.textContent='El sobre de esa fecha ya fue recogido; ya no se puede cambiar.';
+  if(ex && f._editando!==id && !(await confirmar('Reemplazar apartado',`Ya hay apartado de ${f.sucursal} del ${fechaCorta(f.fecha)} (${$$(ex.efTotal)} en sobre). Se reemplazará con estos números.`,'Reemplazar','verde'))) return;
+  const x=calcApartado(ck,cc,ef);
+  const datos={fecha:f.fecha, mes:mesDe(f.fecha), sucursal:f.sucursal,
+    costo:{kontempo:r2(ck),cemento:r2(cc)}, venta:{kontempo:r2(vk),cemento:r2(vc)}, efectivoCorte:r2(ef),
+    efectivo:{kontempo:x.efK,cemento:x.efC}, banco:{kontempo:x.bK,cemento:x.bC},
+    costoTotal:x.tot, efTotal:x.efA, bancoTotal:x.bT, estado:'en_sucursal',
+    creadoPor:S.user.uid, usuario:miUsuario(), creadoPorNombre:S.perfil.nombre||usuarioDeEmail(S.user.email),
+    creadoEn: ex&&ex.creadoEn ? ex.creadoEn : TS(), actualizadoEn:TS()};
+  const b=db.batch();
+  b.set(db.collection(COL.apartados).doc(id), datos);
+  if(f._editando && f._editando!==id) b.delete(db.collection(COL.apartados).doc(f._editando)); // cambió la fecha
+  b.commit().catch(err=>toast('No se pudo guardar: '+errorTexto(err),6000));
+  toast(x.tot>0 ? `Guardado ✓ Aparta ${$$(x.efA)} en el sobre` : 'Guardado ✓ (sin productos a crédito)', 4000);
+  S.apForm=apFormNuevo(); renderApartado();
+}
+async function borrarApartado(){
+  const id=S.apForm._editando; if(!id) return;
+  if(!(await confirmar('Borrar apartado','Se borrará el apartado de esta fecha.','Borrar'))) return;
+  db.collection(COL.apartados).doc(id).delete().catch(e=>toast('No se pudo borrar: '+errorTexto(e),5000));
+  toast('Apartado borrado'); S.apForm=apFormNuevo(); renderApartado();
+}
+
+/* ================= CAJA CHICA ================= */
+/* Fondo fijo por sucursal. Los gastos "Pagado con: Caja chica" bajan el saldo hasta que el dueño repone. */
+const FONDO_CAJA_DEF = 2000;
+let _cajaFormaOk=false;
+function asegurarFormaCajaChica(){
+  if(_cajaFormaOk || !esDueno() || !S.configExiste) return;
+  _cajaFormaOk=true;
+  const fp=S.config.formasPago||[];
+  if(!fp.includes('Caja chica')) guardarConfig({formasPago:['Caja chica',...fp]});
+}
+function suscribirCajaChica(){
+  let q=db.collection(COL.registros).where('formaPago','==','Caja chica').where('reposicionId','==','');
+  if(!esDueno()) q=q.where('creadoPor','==',S.user.uid);
+  S.listeners.push(q.onSnapshot(snap=>{ S.cajaGastos=snap.docs.map(d=>({id:d.id,...d.data()})); refrescar('caja'); },
+    err=>console.warn('caja chica',err)));
+  if(esDueno()) S.listeners.push(db.collection(COL.cajaMov).onSnapshot(snap=>{
+    S.cajaMov=snap.docs.map(d=>({id:d.id,...d.data()}))
+      .sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||'')||((b.creadoEn?.seconds||9e9)-(a.creadoEn?.seconds||9e9)));
+    refrescar('caja');
+  }, err=>console.warn('caja mov',err)));
+}
+function cajaInfo(suc){
+  const fondo=Number((S.config.cajaChica||{})[suc] ?? FONDO_CAJA_DEF);
+  const gastos=S.cajaGastos.filter(r=>r.sucursal===suc && r.estado!=='rechazado');
+  const usado=r2(gastos.reduce((s,r)=>s+(r.monto||0),0));
+  return {fondo, gastos, usado, debe:r2(fondo-usado), pend:gastos.filter(r=>r.estado==='pendiente').length};
+}
+function htmlCajaKpi(suc){
+  const c=cajaInfo(suc);
+  return `<div class="kpi ${c.debe<0?'alerta':''}" style="grid-column:1/-1"><div class="et">Caja chica · debe haber</div><div class="v">${$$(c.debe)}</div>
+    <div style="color:var(--gris);font-size:13px;margin-top:2px">Fondo ${$$(c.fondo)} − ${$$(c.usado)} en ${c.gastos.length} gasto${c.gastos.length===1?'':'s'} sin reponer${c.debe<0?' · <b style="color:var(--rojo)">se gastó más que el fondo</b>':''}</div></div>`;
+}
+function renderCajaChica(){
+  let h=cabecera('Caja chica');
+  sucursalesTienda().forEach(s=>{ const c=cajaInfo(s);
+    h+=`<div class="tarjeta"><div style="display:flex;justify-content:space-between;font-weight:700"><span>${esc(s)}</span><span>Fondo ${$$(c.fondo)}</span></div>
+      <table class="tabla" style="margin-top:6px"><tr><td>Gastos sin reponer (${c.gastos.length})</td><td class="n">${$$(c.usado)}</td></tr>
+      <tr class="total"><td>Debe haber en efectivo</td><td class="n" style="${c.debe<0?'color:var(--rojo)':''}">${$$(c.debe)}</td></tr></table>
+      ${c.pend?`<div class="aviso" style="margin:8px 0 0">${c.pend} gasto${c.pend===1?'':'s'} pendiente${c.pend===1?'':'s'} de aprobar. Conviene revisarlos antes de reponer.</div>`:''}
+      <div class="fila" style="margin-top:10px">
+        <button class="btn chico" data-rep="${esc(s)}" ${c.usado>0?'':'disabled'}>Reponer ${$$(c.usado)}</button>
+        <button class="btn chico sec" data-arq="${esc(s)}">Arqueo</button>
+        <button class="btn chico sec" data-fon="${esc(s)}">Fondo</button></div></div>`; });
+  const mov=S.cajaMov.slice(0,15);
+  h+=`<div class="titulo">Historial</div>`+(mov.length?mov.map(m=>`<div class="item"><div class="cuerpo">
+      <div class="linea1"><span>${m.tipo==='reposicion'?'Reposición':'Arqueo'} · ${esc(m.sucursal)}</span><span class="imp">${$$(m.tipo==='reposicion'?m.monto:m.contado)}</span></div>
+      <div class="linea2">${fechaCorta(m.fecha)}${m.tipo==='reposicion'?` · ${(m.gastoIds||[]).length} gasto${(m.gastoIds||[]).length===1?'':'s'}`
+        :` · debía haber ${$$(m.esperado)} · <b style="color:${Math.abs(m.diferencia)<0.01?'var(--verde)':'var(--rojo)'}">${Math.abs(m.diferencia)<0.01?'cuadra':(m.diferencia>0?'sobran ':'faltan ')+$$(Math.abs(m.diferencia))}</b>`}</div></div></div>`).join('')
+      :'<div class="vacio">Sin reposiciones ni arqueos.</div>');
+  h+=`<p class="sub">Cuentan los gastos capturados con <b>Pagado con: Caja chica</b>. Al reponer entregas el efectivo al encargado y el fondo vuelve completo.</p>`;
+  el('contenido').innerHTML=h; conectarVolver();
+  el('contenido').querySelectorAll('[data-rep]').forEach(b=>b.onclick=()=>reponerCaja(b.dataset.rep));
+  el('contenido').querySelectorAll('[data-arq]').forEach(b=>b.onclick=()=>arqueoCaja(b.dataset.arq));
+  el('contenido').querySelectorAll('[data-fon]').forEach(b=>b.onclick=()=>fondoCaja(b.dataset.fon));
+}
+async function reponerCaja(s){
+  const c=cajaInfo(s); if(!c.gastos.length) return;
+  if(!(await confirmar('Reponer caja chica',`Entregas ${$$(c.usado)} en efectivo a ${s} por ${c.gastos.length} gasto${c.gastos.length===1?'':'s'}. El fondo vuelve a ${$$(c.fondo)}.`,'Reponer','verde'))) return;
+  const ref=db.collection(COL.cajaMov).doc(), lote=c.gastos.slice(0,400), b=db.batch();
+  b.set(ref,{tipo:'reposicion', sucursal:s, monto:r2(lote.reduce((t,r)=>t+r.monto,0)), fecha:hoy(), gastoIds:lote.map(r=>r.id), creadoPor:S.perfil.nombre||'', creadoEn:TS()});
+  lote.forEach(r=>b.update(db.collection(COL.registros).doc(r.id),{reposicionId:ref.id}));
+  b.commit().catch(e=>toast('No se pudo reponer: '+errorTexto(e),5000));
+  toast('Caja chica repuesta ✓');
+}
+function arqueoCaja(s){
+  const c=cajaInfo(s);
+  abrirModal(`<h2>Arqueo · ${esc(s)}</h2><p class="sub" style="margin:0">Debe haber <b>${$$(c.debe)}</b> (fondo ${$$(c.fondo)} − ${$$(c.usado)} en gastos).</p>
+    <label for="qCont">Efectivo contado en la caja chica</label><input id="qCont" class="monto" inputmode="decimal" placeholder="$0.00">
+    <div class="error" id="qErr"></div>
+    <div class="fila"><button class="btn sec" id="qNo">Cancelar</button><button class="btn" id="qSi">Guardar arqueo</button></div>`);
+  el('qNo').onclick=cerrarModal;
+  el('qSi').onclick=()=>{
+    const v=parseMonto(el('qCont').value); if(!(v>=0)) return el('qErr').textContent='Escribe lo que contaste.';
+    const dif=r2(v-c.debe);
+    db.collection(COL.cajaMov).add({tipo:'arqueo', sucursal:s, contado:r2(v), esperado:c.debe, diferencia:dif, fecha:hoy(), creadoPor:S.perfil.nombre||'', creadoEn:TS()})
+      .catch(e=>toast(errorTexto(e),5000));
+    cerrarModal(); toast(Math.abs(dif)<0.01?'Arqueo ✓ cuadra':`Arqueo guardado: ${dif>0?'sobran':'faltan'} ${$$(Math.abs(dif))}`,5000);
+  };
+}
+function fondoCaja(s){
+  const c=cajaInfo(s);
+  abrirModal(`<h2>Fondo de caja chica · ${esc(s)}</h2>
+    <label for="fMon">Monto del fondo</label><input id="fMon" class="monto" inputmode="decimal" value="${c.fondo}">
+    <p class="sub" style="margin-top:8px">Si lo subes, entrega la diferencia en efectivo al encargado.</p>
+    <div class="error" id="fErr"></div>
+    <div class="fila"><button class="btn sec" id="fNo">Cancelar</button><button class="btn" id="fSi">Guardar</button></div>`);
+  el('fNo').onclick=cerrarModal;
+  el('fSi').onclick=()=>{
+    const v=parseMonto(el('fMon').value); if(!(v>0)) return el('fErr').textContent='Escribe un monto mayor a cero.';
+    guardarConfig({cajaChica:{...(S.config.cajaChica||{}),[s]:r2(v)}}); cerrarModal(); toast('Fondo actualizado ✓');
+  };
+}
+
 /* ================= Cuenta ================= */
 el('btnCuenta').onclick=()=>{
   const dueno=esDueno();
@@ -1108,7 +1360,7 @@ if(esNativo && window.Capacitor.Plugins && window.Capacitor.Plugins.App){
   window.Capacitor.Plugins.App.addListener('backButton',()=>{
     if(!el('fondoModal').classList.contains('oculto')) return cerrarModal();
     if(S.form && S.form.id){ const v=S.form._volver||'capturar'; S.form=null; return irA(v); }
-    if(['catalogo','usuarios','unidades','listas','exportar'].includes(S.pantalla)) return irA('mas');
+    if(['catalogo','usuarios','unidades','listas','exportar','cajachica'].includes(S.pantalla) || (S.pantalla==='apartado' && esDueno())) return irA('mas');
     const inicio = esDueno()?'inicio':'capturar';
     if(S.perfil && S.pantalla!==inicio) return irA(inicio);
     window.Capacitor.Plugins.App.exitApp();

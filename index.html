@@ -43,6 +43,8 @@
   textarea{resize:vertical;min-height:52px}
   .monto{font-size:28px;font-weight:700;text-align:right}
   .fila{display:flex;gap:10px}.fila>*{flex:1;min-width:0}
+  .fila.abajo{align-items:flex-end}
+  .campoFijo{padding:12px;border:1px solid var(--borde);border-radius:10px;background:var(--fondo);font-weight:700;font-size:16px;line-height:22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .btn{display:block;width:100%;border:0;border-radius:12px;padding:14px;font-weight:700;font-size:16px;background:var(--azul);color:#fff;margin-top:14px}
   .btn:disabled{opacity:.5}
   .btn.sec{background:var(--azul-claro);color:var(--azul)}
@@ -179,7 +181,7 @@ const firebaseConfig = {
   appId: "1:275450861884:web:00b38ecff8970d573ba639"
 };
 
-const VERSION = '1.3.1';
+const VERSION = '1.3.2';
 const DOMINIO_USUARIOS = 'gastosmp.app';   // usuario "manuel" → manuel@gastosmp.app (interno)
 const COL = { usuarios:'gastos_usuarios', catalogo:'gastos_catalogo', registros:'gastos_registros', config:'gastos_config', login:'gastos_login',
   apartados:'apartados_registros', cajaMov:'caja_chica_mov' };
@@ -315,7 +317,7 @@ function limpiarListeners(){
 let perfilUnsub=null;
 auth.onAuthStateChanged(user=>{
   limpiarListeners(); if(perfilUnsub){perfilUnsub();perfilUnsub=null;}
-  S.user=user; S.perfil=null; S.pantalla=null; S.form=null;
+  S.user=user; S.perfil=null; S.pantalla=null; S.form=null; S.apForm=null;
   if(!user){ mostrar('pantallaLogin'); return; }
   mostrar('pantallaCargando');
   perfilUnsub = db.collection(COL.usuarios).doc(user.uid).onSnapshot(snap=>{
@@ -342,6 +344,7 @@ auth.onAuthStateChanged(user=>{
 
 /* ================= Arranque de la app ================= */
 function iniciarApp(){
+  S.form=null; S.apForm=null; // al cambiar de usuario o de sucursal, formularios en blanco
   limpiarListeners();
   mostrar('app');
   el('btnCuenta').textContent = S.perfil.nombre || usuarioDeEmail(S.user.email);
@@ -440,6 +443,8 @@ function conceptosVisibles(){
 }
 function renderCapturar(){
   if(!S.form) S.form=formNuevo();
+  if(!S.form.id && !esDueno()) S.form.sucursal=S.perfil.sucursal;
+  if(!S.form.id && !String(S.form.monto).trim() && S.form.fecha<hoy()) S.form.fecha=hoy(); // la app quedó abierta desde otro día
   const f=S.form;
   const editando = f.id ? `<div class="editando"><span>Editando gasto del ${fechaCorta(f.fecha)}</span><button class="btn chico sec" id="cCancelar">Cancelar</button></div>` : '';
   el('contenido').innerHTML = `
@@ -542,6 +547,7 @@ function guardarGasto(){
   const pide = c ? !!c.pideUnidadKm : false;
   const u = pide ? unidadPorId(f.unidadId) : null;
   if(pide && !u) return err.textContent='Elige la unidad.';
+  if(!esDueno()) f.sucursal=S.perfil.sucursal;
   if(!f.sucursal) return err.textContent='Tu usuario no tiene sucursal asignada. Avisa al dueño.';
 
   const datos = {
@@ -1104,20 +1110,22 @@ function apFormNuevo(){
 function renderApartado(){
   if(!S.apForm) S.apForm=apFormNuevo();
   const f=S.apForm;
+  if(!esDueno()) f.sucursal=S.perfil.sucursal;   // el encargado siempre captura para SU sucursal
+  if(!f._editando && !String(f.c_kontempo+f.c_cemento+f.ef).trim() && f.fecha<hoy()) f.fecha=hoy(); // la app quedó abierta desde otro día
   el('contenido').innerHTML = `
     ${esDueno()?cabecera('Apartado de créditos'):''}
     <div id="apKpi"></div>
     <div class="tarjeta">
       <div class="titulo" style="margin-top:0">Apartado del día</div>
       <p class="sub" style="margin:0">Costo del reporte de SICAR por categoría y efectivo del corte de caja.</p>
-      <div class="fila">
+      <div class="fila abajo">
         <div><label for="aFecha">Fecha</label><input id="aFecha" type="date" value="${esc(f.fecha)}" max="${hoy()}"></div>
         <div>${esDueno()?`<label for="aSuc">Sucursal</label><select id="aSuc">${sucursalesTienda().map(s=>`<option ${s===f.sucursal?'selected':''}>${esc(s)}</option>`).join('')}</select>`
-          :`<label>Sucursal</label><div style="font-weight:700;padding:12px 2px">${esc(f.sucursal||'—')}</div>`}</div>
+          :`<label>Sucursal</label><div class="campoFijo">${esc(f.sucursal||'— sin asignar —')}</div>`}</div>
       </div>
       <div id="aExiste"></div>
-      <div class="fila">${LINEAS_AP.map(([k,n])=>`
-        <div><label for="aC_${k}">Costo ${n}</label><input id="aC_${k}" data-k="c_${k}" inputmode="decimal" placeholder="$0.00" value="${esc(f['c_'+k])}"></div>`).join('')}
+      <div class="fila abajo">${LINEAS_AP.map(([k,n])=>`
+        <div><label for="aC_${k}">Costo ${k==='kontempo'?'Kontempo':'Cemento'}</label><input id="aC_${k}" data-k="c_${k}" inputmode="decimal" placeholder="$0.00" value="${esc(f['c_'+k])}"></div>`).join('')}
       </div>
       <label for="aEf">Efectivo total del corte de caja</label>
       <input id="aEf" data-k="ef" class="monto" inputmode="decimal" placeholder="$0.00" value="${esc(f.ef)}">
@@ -1389,6 +1397,13 @@ if(esNativo && window.Capacitor.Plugins && window.Capacitor.Plugins.App){
     window.Capacitor.Plugins.App.exitApp();
   });
 }
+
+/* ================= Al volver a la app (quedó abierta en segundo plano) ================= */
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden || !S.perfil) return;
+  if(!esDueno() && S.mesSel!==mesDe(hoy())) suscribirRegistros();      // cambió el mes
+  if(['capturar','apartado'].includes(S.pantalla)) render();            // refresca la fecha de hoy sin perder lo escrito
+});
 
 /* ================= Service worker (solo web) ================= */
 if('serviceWorker' in navigator && !esNativo && location.protocol==='https:'){

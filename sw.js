@@ -1,6 +1,6 @@
 // Gastos MP · service worker (solo versión web)
 // Cambia CACHE_NAME cada vez que publiques cambios para forzar la actualización.
-const CACHE_NAME = 'gastosmp-v1.3.1';
+const CACHE_NAME = 'gastosmp-v1.3.2';
 const ARCHIVOS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {

@@ -114,6 +114,17 @@
   .grupoU .desglose span{background:var(--azul-claro);color:var(--azul);font-size:12px;font-weight:700;padding:3px 8px;border-radius:10px}
   .grupoU .flecha{color:var(--gris);font-size:13px;margin-top:6px}
   .dentro{margin:-2px 0 10px 14px}
+  /* Bono */
+  .frase{background:linear-gradient(135deg,#1f5fbf,#3b7be0);color:#fff;border-radius:var(--radio);padding:14px 16px;margin-bottom:12px;font-size:16px;font-weight:600;line-height:1.35}
+  .termo{position:relative;margin:44px 0 40px}
+  .termo .pista{height:22px;border-radius:11px;background:#eef0f4;overflow:hidden}
+  .termo .lleno{height:100%;border-radius:11px;transition:width .6s}
+  .termo .marca{position:absolute;top:-6px;height:34px;border-left:2px dashed #7a828c}
+  .termo .et{position:absolute;top:30px;font-size:11px;color:var(--gris);transform:translateX(-50%);white-space:nowrap;text-align:center;line-height:1.2}
+  .termo .et.arriba{top:-38px}
+  .barraT{height:12px;border-radius:6px;background:#eef0f4;overflow:hidden}.barraT>div{height:100%;border-radius:6px;transition:width .6s}
+  .bonoGrande{font-size:34px;font-weight:800;color:var(--verde);font-variant-numeric:tabular-nums;line-height:1.1}
+  table.tabla td .chip{margin:0 0 0 4px}
 </style>
 </head>
 <body>
@@ -181,10 +192,11 @@ const firebaseConfig = {
   appId: "1:275450861884:web:00b38ecff8970d573ba639"
 };
 
-const VERSION = '1.3.2';
+const VERSION = '1.4.0';
 const DOMINIO_USUARIOS = 'gastosmp.app';   // usuario "manuel" → manuel@gastosmp.app (interno)
 const COL = { usuarios:'gastos_usuarios', catalogo:'gastos_catalogo', registros:'gastos_registros', config:'gastos_config', login:'gastos_login',
-  apartados:'apartados_registros', cajaMov:'caja_chica_mov' };
+  apartados:'apartados_registros', cajaMov:'caja_chica_mov',
+  bonoMeses:'bono_meses', bonoVentas:'bono_ventas', bonoBit:'bono_bitacora', bonoAvisos:'bono_avisos', bonoConf:'bono_config' };
 /* Conceptos con descripción obligatoria por omisión (se puede cambiar en Catálogo) */
 const DESC_OBLIG_DEF = ['Otros gastos de operación','Reparaciones y mantenimiento del local'];
 const GRUPOS = ['Operación','Financiero','Impuestos','Dueño','Activos','Entrada extra'];
@@ -284,7 +296,7 @@ function unidadPorId(id){ return (S.config.unidades||[]).find(u=>u.id===id); }
 /* ================= Modal ================= */
 function abrirModal(html){ el('modal').innerHTML=html; el('fondoModal').classList.remove('oculto'); }
 function cerrarModal(){ el('fondoModal').classList.add('oculto'); el('modal').innerHTML=''; }
-el('fondoModal').addEventListener('click',e=>{ if(e.target.id==='fondoModal') cerrarModal(); });
+el('fondoModal').addEventListener('click',e=>{ if(e.target.id==='fondoModal' && !S.bloqueaModal) cerrarModal(); });
 function confirmar(titulo, texto, textoBtn, clase='peligro'){
   return new Promise(res=>{
     abrirModal(`<h2>${esc(titulo)}</h2><p>${esc(texto)}</p>
@@ -317,7 +329,7 @@ function limpiarListeners(){
 let perfilUnsub=null;
 auth.onAuthStateChanged(user=>{
   limpiarListeners(); if(perfilUnsub){perfilUnsub();perfilUnsub=null;}
-  S.user=user; S.perfil=null; S.pantalla=null; S.form=null; S.apForm=null;
+  S.user=user; S.perfil=null; S.pantalla=null; S.form=null; S.apForm=null; S.bloqueaModal=false;
   if(!user){ mostrar('pantallaLogin'); return; }
   mostrar('pantallaCargando');
   perfilUnsub = db.collection(COL.usuarios).doc(user.uid).onSnapshot(snap=>{
@@ -376,6 +388,7 @@ function iniciarApp(){
   suscribirRegistros();
   suscribirApartados();
   suscribirCajaChica();
+  suscribirBono();
   armarNav();
   irA(esDueno() ? 'inicio' : 'capturar');
 }
@@ -403,8 +416,8 @@ function suscribirRegistros(){
 }
 
 /* ================= Navegación ================= */
-const NAV_DUENO = [['inicio','📊','Inicio'],['capturar','➕','Capturar'],['gastos','📋','Gastos'],['mas','⚙️','Más']];
-const NAV_ENC   = [['capturar','➕','Capturar'],['mis','📋','Mis gastos'],['apartado','💵','Apartado']];
+const NAV_DUENO = [['inicio','📊','Inicio'],['bono','🏆','Bono'],['capturar','➕','Capturar'],['gastos','📋','Gastos'],['mas','⚙️','Más']];
+const NAV_ENC   = [['capturar','➕','Capturar'],['mis','📋','Mis gastos'],['apartado','💵','Apartado'],['bono','🏆','Bono']];
 function armarNav(){
   const items = esDueno()?NAV_DUENO:NAV_ENC;
   el('nav').innerHTML = items.map(([id,ico,t])=>`<button data-ir="${id}"><span class="ico">${ico}</span>${t}</button>`).join('');
@@ -412,13 +425,16 @@ function armarNav(){
 }
 function irA(p){
   S.pantalla=p;
-  el('nav').querySelectorAll('button').forEach(b=>b.classList.toggle('activo', b.dataset.ir===p || (['catalogo','usuarios','unidades','listas','exportar','apartado','cajachica'].includes(p) && b.dataset.ir==='mas')));
+  el('nav').querySelectorAll('button').forEach(b=>b.classList.toggle('activo', b.dataset.ir===p || (['catalogo','usuarios','unidades','listas','exportar','apartado','cajachica'].includes(p) && b.dataset.ir==='mas') || (['bonofrases','bonobit'].includes(p) && b.dataset.ir==='bono')));
   render(); window.scrollTo(0,0);
 }
 /* Re-render solo si la pantalla actual depende del dato que cambió.
    La pantalla Capturar NO se re-dibuja completa (para no borrar lo que se está escribiendo). */
 function refrescar(que){
   const p=S.pantalla; if(!p) return;
+  if(que==='bono' && el('miniBono')) pintarMiniBono();
+  if(p==='bono'){ if(que==='bono') pintarBono(false); return; }
+  if((p==='bonofrases'||p==='bonobit') && que==='bono'){ if(el('fondoModal').classList.contains('oculto')) render(); return; }
   if(p==='capturar'){ if(que==='catalogo'||que==='config') renderOpcionesCaptura(); return; }
   if(p==='apartado'){ if(que==='apartados') renderApartadoLista(); return; }
   const dep = { inicio:['registros','catalogo'], gastos:['registros','catalogo','usuarios','config'], mis:['registros','caja','config'], cajachica:['caja','config'],
@@ -428,8 +444,9 @@ function refrescar(que){
 function render(){
   const f = { inicio:renderInicio, capturar:renderCapturar, gastos:renderGastos, mis:renderMis, mas:renderMas,
     catalogo:renderCatalogo, usuarios:renderUsuarios, unidades:renderUnidades, listas:renderListas, exportar:renderExportar,
-    apartado:renderApartado, cajachica:renderCajaChica }[S.pantalla];
+    apartado:renderApartado, cajachica:renderCajaChica, bono:renderBono, bonofrases:renderBonoFrases, bonobit:renderBonoBit }[S.pantalla];
   f && f();
+  if(S.pantalla==='inicio' || S.pantalla==='capturar'){ el('contenido').insertAdjacentHTML('afterbegin','<div id="miniBono"></div>'); pintarMiniBono(); }
 }
 
 /* ================= CAPTURAR ================= */
@@ -1366,6 +1383,761 @@ el('btnCuenta').onclick=()=>{
   };
 };
 
+/* ================= VENTAS Y BONO DE PRODUCTIVIDAD ================= */
+const TIENDAS=['Periférico','Libertad'];
+const BONO_INICIO='2026-11';
+const BONO_DEF={ min:{'Periférico':176000,'Libertad':53000}, meta:{'Periférico':209500,'Libertad':62500},
+  pct1:0.10, pct2:0.12, margenMin:0.20, premio:500, tope:8667, margenRef:0.207,
+  utilEstimada:{'Periférico':false,'Libertad':false}, noLab:[], domingos:false };
+const CAT_FRASE=[['dia','Del día (rotan solas)'],['lunes','Lunes'],['atraso','Cuando van atrasados'],['minimo','Al pasar el mínimo'],
+  ['meta','Al llegar a la meta de su tienda'],['doble','Doble meta'],['final','Últimos 5 días del mes'],['cierre_si','Cierre con bono'],['cierre_no','Cierre sin bono']];
+const FRASES_DEF=[
+  ['dia','Cada cliente bien atendido regresa y trae a otro.'],
+  ['dia','Hoy es un buen día para cerrar esa venta grande.'],
+  ['dia','Una venta más hoy es un paso más hacia el bono.'],
+  ['dia','El que ofrece, vende: pregunta siempre "¿qué más le hace falta?"'],
+  ['dia','Los buenos meses se construyen día por día.'],
+  ['dia','Un cliente que sale con todo su pedido completo no se va a la competencia.'],
+  ['dia','Somos un equipo: lo que vende una tienda suma para las dos.'],
+  ['dia','La constancia gana más que la suerte.'],
+  ['dia','Hoy cuenta. Mañana también, pero hoy es el que tenemos.'],
+  ['dia','Ofrecer el complemento (clavos, alambre, cemento) también es vender.'],
+  ['dia','Un buen trato hoy es una obra completa mañana.'],
+  ['dia','La meta no se alcanza el día 30, se alcanza todos los días.'],
+  ['dia','Vender con margen es vender bien.'],
+  ['dia','Cada saludo, cada sonrisa, cada entrega a tiempo suma.'],
+  ['dia','Si un cliente pregunta precio, ofrécele también el servicio.'],
+  ['lunes','Semana nueva, oportunidad nueva. ¡Vamos con todo!'],
+  ['lunes','Revisemos cuánto falta y hagámoslo en equipo.'],
+  ['atraso','Todavía hay tiempo: un buen pedido cambia el mes.'],
+  ['atraso','Vamos un poco abajo del ritmo. Hoy es buen día para recuperar.'],
+  ['atraso','Llama a ese cliente que tiene obra pendiente.'],
+  ['minimo','¡Ya cubrimos los gastos del mes! Desde aquí, todo suma a su bono.'],
+  ['meta','¡Meta cumplida en tu tienda! Ahora cada peso extra paga al 12%.'],
+  ['doble','¡Las dos tiendas en meta! Ganaron los $500 extra. ¡Felicidades, equipo!'],
+  ['final','Recta final: estos días deciden el bono.'],
+  ['final','Faltan pocos días. ¡A cerrar fuerte!'],
+  ['cierre_si','¡Gran mes! Gracias por su esfuerzo; esto es resultado de su trabajo.'],
+  ['cierre_no','Este mes no se logró, pero el próximo empieza en cero y con todo.'],
+].map(([cat,texto],i)=>({id:'f'+(i+1),cat,texto,activa:true}));
+
+const fmt0=new Intl.NumberFormat('es-MX',{style:'currency',currency:'MXN',maximumFractionDigits:0});
+const $0=n=>fmt0.format(Math.round(n||0));
+const kMil=n=>'$'+Math.round((n||0)/1000)+'k';
+const pct=n=>(n==null||!isFinite(n))?'—':(Math.round(n*1000)/10)+'%';
+function hashStr(s){ let h=0; for(const ch of String(s)) h=(h*31+ch.charCodeAt(0))|0; return Math.abs(h); }
+function isoDe(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function mesSig(m){ const [y,mm]=m.split('-').map(Number); return mm===12?`${y+1}-01`:`${y}-${String(mm+1).padStart(2,'0')}`; }
+function diasMes(m){ const [y,mm]=m.split('-').map(Number); const n=new Date(y,mm,0).getDate(); return Array.from({length:n},(_,i)=>`${m}-${String(i+1).padStart(2,'0')}`); }
+function esLaborable(f,p){ const d=new Date(f+'T12:00:00').getDay(); if(d===0 && !p.domingos) return false; return !(p.noLab||[]).includes(f); }
+function fmtTS(ts){ return ts && ts.toDate ? ts.toDate().toLocaleString('es-MX',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : 'enviando…'; }
+function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
+function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
+
+const B={ meses:{}, mesesListo:false, ventas:[], bit:[], avisos:[], frases:null, conf:{}, mes:mesDe(hoy()), form:null, unsubV:null, unsubBit:null };
+
+/* ---------- Suscripciones ---------- */
+let _bonoErr=false;
+function avisoReglasBono(q,err){ if(!_bonoErr){ _bonoErr=true; toast(q+': '+errorTexto(err)+' (¿ya publicaste las reglas nuevas?)',6000); } }
+function suscribirBono(){
+  Object.assign(B,{meses:{},mesesListo:false,ventas:[],bit:[],avisos:[],frases:null,conf:{},mes:mesDe(hoy()),form:null});
+  S.listeners.push(db.collection(COL.bonoMeses).onSnapshot(snap=>{
+    B.meses={}; snap.docs.forEach(d=>B.meses[d.id]={id:d.id,...d.data()});
+    B.mesesListo = B.mesesListo || !snap.metadata.fromCache;
+    if(esDueno()){ asegurarMesBono(mesDe(hoy())); asegurarMesBono(B.mes); }
+    refrescar('bono');
+  }, err=>avisoReglasBono('Bono',err)));
+  S.listeners.push(db.collection(COL.bonoConf).doc('frases').onSnapshot(s=>{ B.frases=s.exists?(s.data().lista||[]):null; refrescar('bono'); },()=>{}));
+  S.listeners.push(db.collection(COL.bonoConf).doc('general').onSnapshot(s=>{ B.conf=s.exists?s.data():{}; programarRecordatorioBono(); },()=>{}));
+  S.listeners.push(db.collection(COL.bonoAvisos).orderBy('creadoEn','desc').limit(40).onSnapshot(snap=>{
+    B.avisos=snap.docs.map(d=>({id:d.id,...d.data()})); revisarAvisosBono(); refrescar('bono');
+  },()=>{}));
+  S.listeners.push(()=>{ if(B.unsubV){B.unsubV();B.unsubV=null;} if(B.unsubBit){B.unsubBit();B.unsubBit=null;} });
+  suscribirMesBono();
+}
+function suscribirMesBono(){
+  if(B.unsubV){B.unsubV();B.unsubV=null;} if(B.unsubBit){B.unsubBit();B.unsubBit=null;}
+  const m=B.mes; B.ventas=[]; B.bit=[];
+  B.unsubV=db.collection(COL.bonoVentas).where('mes','==',m).onSnapshot({includeMetadataChanges:true},snap=>{
+    B.ventas=snap.docs.map(d=>({id:d.id,...d.data(),_subir:d.metadata.hasPendingWrites}))
+      .sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||'')||(a.sucursal||'').localeCompare(b.sucursal||''));
+    refrescar('bono'); programarRecordatorioBono();
+  }, err=>avisoReglasBono('Ventas',err));
+  B.unsubBit=db.collection(COL.bonoBit).where('mes','==',m).onSnapshot(snap=>{
+    B.bit=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.creadoEn?.seconds||9e9)-(a.creadoEn?.seconds||9e9));
+    refrescar('bono');
+  },()=>{});
+}
+
+/* ---------- Parámetros por mes ---------- */
+function normParams(p){
+  p=p||{}; const D=JSON.parse(JSON.stringify(BONO_DEF));
+  const r={...D,...p};
+  r.min={...D.min,...(p.min||{})}; r.meta={...D.meta,...(p.meta||{})}; r.utilEstimada={...D.utilEstimada,...(p.utilEstimada||{})};
+  r.noLab=Array.isArray(p.noLab)?p.noLab:[];
+  return r;
+}
+function paramsMes(m){
+  const d=B.meses[m]; if(d && d.params) return normParams(d.params);
+  const prev=Object.keys(B.meses).filter(k=>k<m && B.meses[k].params).sort().pop();
+  const p=normParams(prev?B.meses[prev].params:{});
+  p.noLab=[]; // los días no laborables son de cada mes
+  return p;
+}
+const _mesCreando=new Set();
+function asegurarMesBono(m){
+  if(!esDueno() || !B.mesesListo || m<BONO_INICIO || B.meses[m] || _mesCreando.has(m)) return;
+  _mesCreando.add(m);
+  db.collection(COL.bonoMeses).doc(m).set({mes:m, params:paramsMes(m), descuentos:[], condiciones:{}, oficial:{}, cerrado:false, creadoEn:TS()},{merge:true})
+    .catch(()=>_mesCreando.delete(m));
+}
+
+/* ---------- Cálculo ---------- */
+function bolsaDe(total,p){
+  const minT=TIENDAS.reduce((s,t)=>s+(p.min[t]||0),0), metaT=TIENDAS.reduce((s,t)=>s+(p.meta[t]||0),0);
+  const t1=Math.max(0,Math.min(total,metaT)-minT)*p.pct1, t2=Math.max(0,total-metaT)*p.pct2;
+  return {t1,t2,bolsa:t1+t2,minT,metaT};
+}
+function calcBono(m, mdOverride){
+  const p=paramsMes(m), md=mdOverride||B.meses[m]||{}, vs=B.ventas.filter(v=>v.mes===m), of=md.oficial||{};
+  const T={};
+  TIENDAS.forEach(t=>T[t]={venta:0,utilCap:0,dias:0,ventaConU:0,ventaSinU:0});
+  vs.forEach(v=>{ const x=T[v.sucursal]; if(!x) return; x.venta+=v.venta||0; x.dias++;
+    if(typeof v.utilidad==='number'){ x.utilCap+=v.utilidad; x.ventaConU+=v.venta||0; } else x.ventaSinU+=v.venta||0; });
+  TIENDAS.forEach(t=>{ const x=T[t], o=of[t]||{};
+    x.ventaCap=x.venta; x.utilCapOrig=x.utilCap;
+    if(typeof o.venta==='number'){ x.venta=o.venta; x.ofV=true; }
+    if(typeof o.util==='number'){ x.utilBase=o.util; x.oficial=true; } else x.utilBase=x.utilCap;
+    x.estimada = !x.oficial && !!p.utilEstimada[t];
+  });
+  // Margen de referencia: tiendas que capturan utilidad (oficial del mes o días con utilidad capturada)
+  let vR=0, uR=0;
+  TIENDAS.filter(t=>!T[t].estimada).forEach(t=>{ const x=T[t];
+    if(x.oficial){ if(x.venta>0){ vR+=x.venta; uR+=x.utilBase; } } else { vR+=x.ventaConU; uR+=x.utilCap; } });
+  const margenRef = vR>0 ? uR/vR : p.margenRef;
+  TIENDAS.forEach(t=>{ const x=T[t];
+    // Días sin utilidad capturada (p. ej. antes de corregir SICAR) se estiman con el margen de referencia
+    x.diasEst = !x.estimada && !x.oficial && x.ventaSinU>0;
+    x.util = x.estimada ? x.venta*margenRef : x.oficial ? x.utilBase : x.utilCap + x.ventaSinU*margenRef;
+    x.margen = x.estimada ? margenRef : (x.venta>0 ? x.util/x.venta : null);
+    x.descs=(md.descuentos||[]).filter(d=>d.sucursal===t);
+    x.desc=x.descs.reduce((s,d)=>s+(d.monto||0),0);
+    x.ub=x.util-x.desc; x.min=p.min[t]||0; x.meta=p.meta[t]||0; x.enMeta = x.meta>0 && x.ub>=x.meta;
+  });
+  const total=TIENDAS.reduce((s,t)=>s+T[t].ub,0), ventaT=TIENDAS.reduce((s,t)=>s+T[t].venta,0), utilT=TIENDAS.reduce((s,t)=>s+T[t].util,0);
+  const margen = ventaT>0 ? utilT/ventaT : null;
+  const margenOk = margen==null || margen>=p.margenMin;
+  const b=bolsaDe(total,p);
+  const cada = margenOk ? Math.min(b.bolsa/2, p.tope) : 0;
+  const doble = TIENDAS.every(t=>T[t].enMeta);
+  const premio = doble && margenOk ? p.premio : 0;
+  const cond=md.condiciones||{};
+  TIENDAS.forEach(t=>{ const x=T[t]; x.condOk=!(cond[t] && cond[t].ok===false); x.condMotivo=(cond[t]&&cond[t].motivo)||''; x.bono=x.condOk ? r2(cada+premio) : 0; });
+  const bt=2*p.tope, tramo1Max=(b.metaT-b.minT)*p.pct1;
+  const totalTope = bt<=tramo1Max ? b.minT+bt/(p.pct1||1) : b.metaT+(bt-tramo1Max)/(p.pct2||1);
+  // Ritmo
+  const h=hoy(), lab=diasMes(m).filter(f=>esLaborable(f,p)), hoyCap=vs.some(v=>v.fecha===h);
+  const transc = m<mesDe(h) ? lab.length : m>mesDe(h) ? 0 : lab.filter(f=>f<h || (f===h && hoyCap)).length;
+  const rest = lab.length-transc;
+  let proy=null, proyBono=null;
+  if(transc>0 && rest>0){
+    proy=total/transc*lab.length;
+    const pb=bolsaDe(proy,p); proyBono = margenOk ? Math.min(pb.bolsa/2,p.tope) : 0;
+    if(margenOk && TIENDAS.every(t=>T[t].meta>0 && T[t].ub/transc*lab.length>=T[t].meta)) proyBono+=p.premio;
+  }
+  TIENDAS.forEach(t=>{ const x=T[t];
+    x.falta=Math.max(0,x.meta-x.ub);
+    const mg=(x.margen && x.margen>0) ? x.margen : (margenRef||p.margenRef);
+    x.ventaDia = rest>0 && mg>0 ? x.falta/rest/mg : 0;
+    x.ventaDiaMeta = lab.length && mg>0 ? x.meta/mg/lab.length : 0;
+  });
+  return {m,p,md,T,total,ventaT,utilT,margen,margenOk,...b,cada,doble,premio,totalTope,lab,transc,rest,proy,proyBono,cerrado:!!md.cerrado,margenRef};
+}
+
+/* ---------- Frases ---------- */
+function listaFrases(){ return B.frases || FRASES_DEF; }
+function fraseDe(cat,semilla){
+  const act=listaFrases().filter(f=>f.activa!==false && f.texto);
+  let l=act.filter(f=>f.cat===cat); if(!l.length) l=act.filter(f=>f.cat==='dia');
+  return l.length ? l[hashStr(semilla)%l.length].texto : '';
+}
+function fraseHoy(c){
+  const h=hoy();
+  if(c.cerrado){ const t=esDueno()?null:S.perfil.sucursal; const conBono = t ? (c.md.cierre?.bono?.[t] ?? c.T[t].bono)>0 : TIENDAS.some(x=>c.T[x].bono>0); return fraseDe(conBono?'cierre_si':'cierre_no', c.m); }
+  if(c.m!==mesDe(h)) return '';
+  const dow=new Date(h+'T12:00:00').getDay(); let cat='dia';
+  if(c.rest>0 && c.rest<=5) cat='final';
+  else if(dow===1) cat='lunes';
+  else if(c.transc>=3 && c.proy!=null && c.proy<c.metaT && hashStr(h)%2===0) cat='atraso';
+  return fraseDe(cat,h);
+}
+function celebrarBono(c){
+  if(esDueno() || S.bloqueaModal || c.cerrado || c.m!==mesDe(hoy()) || !el('fondoModal').classList.contains('oculto')) return;
+  const x=c.T[S.perfil.sucursal]; if(!x) return;
+  const hitos=[['minimo','🎉 ¡Pasaron el mínimo!',c.minT>0&&c.total>=c.minT],['meta','🏆 ¡Tu tienda llegó a su meta!',x.enMeta],['doble','🥇 ¡Doble meta!',c.doble]];
+  const clave=h=>`gmp_cel_${S.user.uid}_${c.m}_${h}`;
+  for(let i=hitos.length-1;i>=0;i--){
+    const [h,tit,ok]=hitos[i]; if(!ok) continue;
+    if(lsGet(clave(h))) return;
+    for(let j=0;j<=i;j++) lsSet(clave(hitos[j][0]),'1');
+    abrirModal(`<div style="text-align:center;font-size:54px;line-height:1">🎉</div><h2 style="text-align:center">${tit}</h2>
+      <p style="text-align:center;font-size:17px">${esc(fraseDe(h,c.m+h))}</p>
+      <p class="sub" style="text-align:center">Bono estimado para ti: <b>${$0(x.bono)}</b></p>
+      <button class="btn verde" id="celOk">¡Vamos por más!</button>`);
+    el('celOk').onclick=cerrarModal; return;
+  }
+}
+
+/* ---------- Avisos con "Enterado" ---------- */
+function crearAvisoBono(mes,titulo,texto,motivo,sucursal){
+  return db.collection(COL.bonoAvisos).add({mes,titulo,texto,motivo:motivo||'',sucursal:sucursal||null,creadoEn:TS(),creadoPor:miUsuario(),enterados:{}})
+    .catch(e=>toast('Aviso: '+errorTexto(e)));
+}
+const _avVistos=new Set();
+function revisarAvisosBono(){
+  if(!S.perfil || esDueno() || S.bloqueaModal) return;
+  const mia=S.perfil.sucursal;
+  const pend=B.avisos.filter(a=>!_avVistos.has(a.id) && !(a.enterados && a.enterados[S.user.uid]) && (!a.sucursal || a.sucursal===mia))
+    .sort((a,b)=>(a.creadoEn?.seconds||9e9)-(b.creadoEn?.seconds||9e9));
+  if(!pend.length) return;
+  const a=pend[0]; S.bloqueaModal=true;
+  abrirModal(`<h2>📣 ${esc(a.titulo)}</h2><div style="white-space:pre-line;font-size:15px;line-height:1.45">${esc(a.texto)}</div>
+    ${a.motivo?`<p class="sub" style="margin:10px 0 0">Motivo: ${esc(a.motivo)}</p>`:''}
+    <button class="btn" id="avOk">Enterado</button>`);
+  el('avOk').onclick=()=>{
+    _avVistos.add(a.id);
+    db.collection(COL.bonoAvisos).doc(a.id).update({[`enterados.${S.user.uid}`]:firebase.firestore.Timestamp.now()}).catch(e=>toast('Aviso: '+errorTexto(e)));
+    S.bloqueaModal=false; cerrarModal(); setTimeout(revisarAvisosBono,300);
+  };
+}
+
+/* ---------- Bitácora ---------- */
+function bitacoraBono(mes,accion,detalle,extra={}){
+  return db.collection(COL.bonoBit).add({mes, accion, detalle:detalle||'', sucursal:extra.sucursal||null, motivo:extra.motivo||'',
+    tipo: esDueno()?'ajuste':'captura', uid:S.user.uid, usuario:miUsuario(), nombre:S.perfil.nombre||miUsuario(), creadoEn:TS()}).catch(()=>{});
+}
+
+/* ---------- Recordatorio diario (solo app Android, encargados) ---------- */
+const LNB = esNativo && window.Capacitor.Plugins ? window.Capacitor.Plugins.LocalNotifications : null;
+let _recT=null;
+function programarRecordatorioBono(){ if(!LNB || !S.perfil || esDueno() || !TIENDAS.includes(S.perfil.sucursal)) return; clearTimeout(_recT); _recT=setTimeout(_programarRecBono,2000); }
+async function _programarRecBono(){
+  try{
+    let perm=await LNB.checkPermissions(); if(perm.display!=='granted') perm=await LNB.requestPermissions(); if(perm.display!=='granted') return;
+    const [hh,mi]=String(B.conf.hora||'19:00').split(':').map(Number), ahora=new Date(), ids=[], lista=[];
+    for(let i=0;i<10;i++){
+      const d=new Date(); d.setDate(d.getDate()+i); const f=isoDe(d), id=hashStr('bono|'+f)%2000000000+1; ids.push({id});
+      if(!esLaborable(f,paramsMes(mesDe(f)))) continue;
+      if(B.ventas.some(v=>v.fecha===f && v.sucursal===S.perfil.sucursal)) continue;
+      const at=new Date(d); at.setHours(isNaN(hh)?19:hh, isNaN(mi)?0:mi, 0, 0); if(at<=ahora) continue;
+      lista.push({id, title:'🏆 Captura la venta de hoy', body:'Registra venta y utilidad del día para ver cómo va el bono.', schedule:{at,allowWhileIdle:true}});
+    }
+    await LNB.cancel({notifications:ids});
+    if(lista.length) await LNB.schedule({notifications:lista});
+  }catch(e){ console.error('recordatorio bono',e); }
+}
+
+/* ---------- Tarjeta chica (Inicio / Capturar) ---------- */
+function pintarMiniBono(){
+  const n=el('miniBono'); if(!n) return;
+  if(!esDueno() && !TIENDAS.includes(S.perfil.sucursal)){ n.innerHTML=''; return; }
+  const c=calcBono(B.mes); const v = esDueno() ? c.cada+c.premio : c.T[S.perfil.sucursal].bono;
+  const est = c.total<c.minT ? `Faltan ${$0(c.minT-c.total)} para el mínimo` : c.total<c.metaT ? `Faltan ${$0(c.metaT-c.total)} para la meta` : '¡Arriba de la meta!';
+  n.innerHTML=`<div class="item" id="miniBonoBtn" style="cursor:pointer;border-left:4px solid var(--verde);align-items:center"><span style="font-size:24px">🏆</span>
+    <div class="cuerpo"><div class="linea1"><span>Bono estimado${esDueno()?' c/u':''}</span><span class="imp" style="color:var(--verde)">${$0(v)}</span></div><div class="linea2">${est}</div></div><span>›</span></div>`;
+  el('miniBonoBtn').onclick=()=>irA('bono');
+}
+
+/* ---------- Pantalla Ventas y Bono ---------- */
+function bonoFormNuevo(){
+  const suc = esDueno() ? ((B.form && B.form.sucursal) || TIENDAS[0]) : S.perfil.sucursal;
+  const m=B.mes, h=hoy(); const fecha = mesDe(h)===m ? h : diasMes(m).slice(-1)[0];
+  const f={fecha, sucursal:suc, venta:'', utilidad:'', _sucio:false, _abierta:false}; cargarDiaForm(f); return f;
+}
+function cargarDiaForm(f){
+  const ex=B.ventas.find(v=>v.id===`${f.sucursal}_${f.fecha}`);
+  f.venta = ex ? String(ex.venta??'') : ''; f.utilidad = ex && ex.utilidad!=null ? String(ex.utilidad) : '';
+}
+function cabeceraBono(t){ return `<div class="fila" style="align-items:center;margin-bottom:10px"><button class="btn chico sec" id="volverBono" style="flex:none">‹ Bono</button><div class="titulo" style="margin:0;flex:1;text-align:right">${t}</div></div>`; }
+function renderBono(){
+  if(!esDueno()){
+    if(B.mes!==mesDe(hoy())){ B.mes=mesDe(hoy()); suscribirMesBono(); }
+    if(!TIENDAS.includes(S.perfil.sucursal)){ el('contenido').innerHTML=`<div class="aviso">Tu usuario no tiene asignada la tienda Periférico o Libertad. Pídele al dueño que la asigne en Usuarios.</div>`; return; }
+  }
+  if(!B.form || mesDe(B.form.fecha)!==B.mes) B.form=bonoFormNuevo();
+  el('contenido').innerHTML=`${esDueno()?selectorMesBono():''}<div id="bonoTop"></div><div id="bonoCap"></div><div id="bonoBottom"></div>
+    <p class="sub" style="text-align:center">Bono estimado. El oficial es el del cierre del mes con el reporte de SICAR.</p>`;
+  if(esDueno()) el('bMes').onchange=e=>{ B.mes=e.target.value; B.form=null; asegurarMesBono(B.mes); suscribirMesBono(); renderBono(); };
+  pintarBono(true);
+}
+function pintarBono(conCaptura){
+  if(!el('bonoTop')) return;
+  const c=calcBono(B.mes), mia=esDueno()?null:S.perfil.sucursal, fr=fraseHoy(c);
+  el('bonoTop').innerHTML = `${fr?`<div class="frase">💬 ${esc(fr)}</div>`:''}${htmlTermo(c)}${esDueno()?htmlTiendasDueno(c):htmlMiTienda(c,mia)}${htmlRitmo(c)}`;
+  if(conCaptura || !B.form._sucio) pintarCapturaBono(c);
+  el('bonoBottom').innerHTML = esDueno() ? htmlAccionesDueno(c)+htmlDiasDueno(c) : htmlMisDias(c,mia)+htmlAjustes(mia)+htmlHistorial(mia);
+  conectarBottom();
+  celebrarBono(c);
+}
+function selectorMesBono(){
+  const ms=[]; let m=BONO_INICIO; const cur=mesDe(hoy());
+  while(m<=cur){ ms.push(m); m=mesSig(m); }
+  if(!ms.includes(B.mes)) ms.push(B.mes);
+  return `<select id="bMes" style="margin-bottom:12px">${ms.reverse().map(x=>`<option value="${x}" ${x===B.mes?'selected':''}>${nombreMes(x)}${B.meses[x]&&B.meses[x].cerrado?' · cerrado':''}</option>`).join('')}</select>`;
+}
+function htmlTermo(c){
+  const max=Math.max(c.totalTope*1.05, c.total*1.04, 1), pos=v=>Math.max(0,Math.min(100,v/max*100));
+  const color = c.total>=c.totalTope?'var(--verde)' : c.total>=c.metaT?'#e07b14' : c.total>=c.minT?'var(--azul)' : '#9aa3ae';
+  let estado;
+  if(c.total<c.minT) estado=`Faltan <b>${$0(c.minT-c.total)}</b> para el mínimo. Desde ahí empieza el bono al ${pct(c.p.pct1)}.`;
+  else if(c.total<c.metaT) estado=`¡Ya pasaron el mínimo! Faltan <b>${$0(c.metaT-c.total)}</b> para la meta; arriba de ella se paga ${pct(c.p.pct2)}.`;
+  else if(c.total<c.totalTope) estado=`¡Arriba de la meta! Cada peso extra paga al ${pct(c.p.pct2)}. Faltan ${$0(c.totalTope-c.total)} para el tope.`;
+  else estado='¡Llegaron al tope del bono! 🥇';
+  const mios=esDueno()?null:c.T[S.perfil.sucursal];
+  const v=esDueno()? c.cada+c.premio : mios.bono;
+  const marcas=[[c.minT,'Mínimo',false],[c.metaT,'Meta',true],[c.totalTope,'Tope',false]];
+  return `<div class="tarjeta">
+    <div class="titulo" style="margin-top:0">Utilidad de las dos tiendas · ${nombreMes(c.m)} ${c.cerrado?'<span class="chip aprobado">Cerrado</span>':''}</div>
+    <div style="font-size:30px;font-weight:800;font-variant-numeric:tabular-nums">${$0(c.total)}</div>
+    <div class="termo"><div class="pista"><div class="lleno" style="width:${pos(c.total)}%;background:${color}"></div></div>
+      ${marcas.map(([val,t,arriba])=>`<div class="marca" style="left:${pos(val)}%"></div><div class="et${arriba?' arriba':''}" style="left:${Math.min(90,Math.max(10,pos(val)))}%">${t}<br><b>${kMil(val)}</b></div>`).join('')}
+    </div>
+    <div style="font-size:14px">${estado}</div>
+    <div class="fila" style="margin-top:12px;align-items:flex-end">
+      <div><div style="font-size:13px;color:var(--gris);font-weight:600">Bono estimado ${esDueno()?'para cada encargado':'para ti'}</div><div class="bonoGrande">${$0(v)}</div></div>
+      <div style="text-align:right;font-size:13px;flex:none;max-width:48%">${c.doble?`✅ Incluye ${$0(c.p.premio)} de premio por doble meta`:`Premio doble meta: <b>${$0(c.p.premio)}</b><br><span style="color:var(--gris)">si las dos tiendas llegan a su meta</span>`}</div>
+    </div>
+    ${c.cada>=c.p.tope?`<div class="sub" style="margin:6px 0 0">Ya están en el tope de ${$0(c.p.tope)} por persona.</div>`:''}
+    ${!c.margenOk?`<div class="aviso" style="margin:10px 0 0">El margen de las dos tiendas va en ${pct(c.margen)}, abajo del ${pct(c.p.margenMin)}: así no hay bono. Cuiden los descuentos.</div>`:''}
+    ${mios&&!mios.condOk?`<div class="aviso" style="margin:10px 0 0;background:var(--rojo-claro);color:var(--rojo)">Este mes no se cumplió una condición${mios.condMotivo?': '+esc(mios.condMotivo):''}.</div>`:''}
+  </div>`;
+}
+function htmlMiTienda(c,t){
+  const x=c.T[t], otra=TIENDAS.find(o=>o!==t), y=c.T[otra], pc=x.meta?Math.min(100,x.ub/x.meta*100):0;
+  return `<div class="tarjeta"><div class="titulo" style="margin-top:0">Tu tienda · ${esc(t)}</div>
+    <div class="resumen" style="margin:0 0 6px"><span>Utilidad${x.estimada?' (estimada)':x.diasEst?' (parte estimada)':''}</span><b>${$0(x.ub)}</b></div>
+    <div class="barraT"><div style="width:${pc}%;background:${x.enMeta?'var(--verde)':'var(--azul)'}"></div></div>
+    <div class="fila" style="font-size:13px;color:var(--gris);margin-top:4px"><span>${Math.round(pc)}% de tu meta</span><span style="text-align:right">Meta ${$0(x.meta)}</span></div>
+    <div style="margin-top:10px;font-size:14px">${x.enMeta?'✅ ¡Tu tienda ya está en su meta!' : c.rest>0&&!c.cerrado ? `Para tu meta: vender ~<b>${$0(x.ventaDia)}</b> diarios los ${c.rest} día${c.rest===1?'':'s'} hábiles que quedan.` : `Faltaron ${$0(x.falta)} para tu meta.`}</div>
+    <div style="margin-top:6px;font-size:14px">Venta del mes: <b>${$0(x.venta)}</b></div>
+    <div style="margin-top:6px;font-size:14px">${esc(otra)}: ${y.enMeta?'✅ en su meta':'⏳ aún no llega a su meta'}</div>
+    ${x.desc?`<div class="sub" style="margin:6px 0 0">Ya descontados ${$0(x.desc)} (ver ajustes del dueño).</div>`:''}
+    ${x.estimada?`<div class="sub" style="margin:6px 0 0">Tu utilidad se calcula con el margen de la otra tienda (${pct(c.margenRef)}).</div>`:x.diasEst?`<div class="sub" style="margin:6px 0 0">Los días que no tienen utilidad capturada se estiman con un margen de ${pct(c.margenRef)}.</div>`:''}
+  </div>`;
+}
+function htmlTiendasDueno(c){
+  const f=(et,fn)=>`<tr><td>${et}</td>${TIENDAS.map(t=>`<td class="n">${fn(c.T[t],t)}</td>`).join('')}</tr>`;
+  return `<div class="tarjeta"><div class="titulo" style="margin-top:0">Por tienda</div>
+    <table class="tabla"><tr><td></td>${TIENDAS.map(t=>`<td class="n"><b>${esc(t)}</b></td>`).join('')}</tr>
+    ${f('Venta',x=>$0(x.venta)+(x.ofV?' <span class="chip aprobado">SICAR</span>':''))}
+    ${f('Utilidad',x=>$0(x.util)+(x.estimada?' <span class="chip gris">est.</span>':x.oficial?' <span class="chip aprobado">SICAR</span>':x.diasEst?' <span class="chip gris">parte est.</span>':''))}
+    ${f('Margen',x=>pct(x.margen))}
+    ${f('Descuentos',x=>x.desc?'−'+$0(x.desc):'—')}
+    ${f('Para el bono',x=>'<b>'+$0(x.ub)+'</b>')}
+    ${f('Meta',x=>$0(x.meta))}
+    ${f('Avance',x=>(x.meta?Math.round(x.ub/x.meta*100):0)+'%'+(x.enMeta?' ✅':''))}
+    ${f('Venta diaria para meta',x=>x.enMeta?'—':$0(x.ventaDia))}
+    ${f('Condiciones',x=>x.condOk?'✓':'<span style="color:var(--rojo)">No</span>')}
+    <tr class="total"><td>Bono encargado</td>${TIENDAS.map(t=>`<td class="n" style="color:var(--verde)">${$0(c.T[t].bono)}</td>`).join('')}</tr></table>
+    <div class="sub" style="margin:8px 0 0">Margen combinado ${pct(c.margen)} ${c.margenOk?'✓':'✗'} (mínimo ${pct(c.p.margenMin)}) · Bolsa ${$0(c.bolsa)} · Tramo 10%: ${$0(c.t1)} · Tramo 12%: ${$0(c.t2)}</div>
+  </div>`;
+}
+function htmlRitmo(c){
+  if(c.cerrado || c.m!==mesDe(hoy())) return '';
+  let t;
+  if(!c.transc) t='Todavía no hay ventas capturadas este mes.';
+  else if(c.proy==null) t=`Último día hábil del mes. Llevan ${$0(c.total)}.`;
+  else {
+    const col = c.proy>=c.metaT?'var(--verde)':c.proy>=c.minT?'var(--azul)':'var(--rojo)';
+    const falta=Math.max(0,c.metaT-c.total);
+    t=`Llevan ${c.transc} de ${c.lab.length} días hábiles. Al ritmo actual cierran en <b style="color:${col}">~${$0(c.proy)}</b> de utilidad → bono ~<b>${$0(c.proyBono)}</b> ${esDueno()?'c/u':'para ti'}.
+      ${falta>0?`<br>Para la meta necesitan ~${$0(falta/c.rest)} de utilidad por día entre las dos tiendas.`:''}`;
+  }
+  return `<div class="tarjeta"><div class="titulo" style="margin-top:0">¿Vamos al ritmo?</div><div style="font-size:14px;line-height:1.45">${t}</div></div>`;
+}
+function pintarCapturaBono(c){
+  const n=el('bonoCap'); if(!n) return;
+  const f=B.form;
+  if(c.cerrado){ n.innerHTML=`<div class="tarjeta"><div class="sub" style="margin:0">🔒 El mes está cerrado.${esDueno()?' Para corregir algo, reábrelo en "Cierre del mes".':''}</div></div>`; return; }
+  const est=!!c.p.utilEstimada[f.sucursal], ex=B.ventas.find(v=>v.id===`${f.sucursal}_${f.fecha}`);
+  if(!esDueno() && f.fecha===hoy() && ex && !f._abierta){
+    n.innerHTML=`<div class="tarjeta" style="background:var(--verde-claro);border-color:transparent"><div class="fila" style="align-items:center">
+      <div><b style="color:var(--verde)">✅ Venta de hoy capturada</b><div style="font-size:14px">${$$(ex.venta)}${ex.utilidad!=null?' · utilidad '+$$(ex.utilidad):''}${ex._subir?' · <span class="chip subir">por subir</span>':''}</div></div>
+      <button class="btn chico sec" id="vAbrir" style="flex:none">Corregir u otro día</button></div></div>`;
+    el('vAbrir').onclick=()=>{ f._abierta=true; pintarCapturaBono(calcBono(B.mes)); };
+    return;
+  }
+  const minF=`${B.mes}-01`, maxF=mesDe(hoy())===B.mes?hoy():diasMes(B.mes).slice(-1)[0];
+  n.innerHTML=`<div class="tarjeta"><div class="titulo" style="margin-top:0">Captura de venta del día</div>
+    <p class="sub" style="margin:0">Del reporte de SICAR "Utilidades por ventas" del día.</p>
+    <div class="fila abajo">
+      <div><label for="vFecha">Fecha</label><input id="vFecha" type="date" value="${esc(f.fecha)}" min="${minF}" max="${maxF}"></div>
+      <div>${esDueno()?`<label for="vSuc">Tienda</label><select id="vSuc">${TIENDAS.map(t=>`<option ${t===f.sucursal?'selected':''}>${esc(t)}</option>`).join('')}</select>`
+        :`<label>Tienda</label><div class="campoFijo">${esc(f.sucursal)}</div>`}</div>
+    </div>
+    ${ex?`<div class="editando"><span>Ya hay captura de este día (${$$(ex.venta)}). Al guardar se corrige.</span></div>`:''}
+    <label for="vVenta">Venta total del día</label><input id="vVenta" class="monto" inputmode="decimal" placeholder="$0.00" value="${esc(f.venta)}">
+    ${est?`<div class="sub" style="margin:8px 0 0">La utilidad de ${esc(f.sucursal)} se calcula sola con el margen de la otra tienda.</div>`
+      :`<label for="vUtil">Utilidad del día</label><input id="vUtil" inputmode="decimal" placeholder="$0.00" value="${esc(f.utilidad)}">`}
+    <button class="btn" id="vGuardar">${ex?'Guardar corrección':'Guardar venta'}</button>
+    ${f._abierta?'<button class="btn sec" id="vCancelar">Cancelar</button>':''}
+    <div class="error" id="vErr"></div></div>`;
+  const marcar=()=>{ f._sucio=true; };
+  el('vVenta').oninput=e=>{ f.venta=e.target.value; marcar(); };
+  el('vUtil')&&(el('vUtil').oninput=e=>{ f.utilidad=e.target.value; marcar(); });
+  el('vFecha').onchange=e=>{ if(!e.target.value) return; f.fecha=e.target.value; cargarDiaForm(f); f._sucio=false; pintarCapturaBono(calcBono(B.mes)); };
+  el('vSuc')&&(el('vSuc').onchange=e=>{ f.sucursal=e.target.value; cargarDiaForm(f); f._sucio=false; pintarCapturaBono(calcBono(B.mes)); });
+  el('vGuardar').onclick=guardarVentaBono;
+  el('vCancelar')&&(el('vCancelar').onclick=()=>{ B.form=bonoFormNuevo(); pintarCapturaBono(calcBono(B.mes)); });
+}
+function guardarVentaBono(){
+  const f=B.form, e=el('vErr'); e.textContent='';
+  if(!TIENDAS.includes(f.sucursal)) return e.textContent='Tu usuario no tiene tienda asignada.';
+  if(!f.fecha || f.fecha>hoy()) return e.textContent='Revisa la fecha.';
+  const m=mesDe(f.fecha), p=paramsMes(m), est=!!p.utilEstimada[f.sucursal];
+  if(B.meses[m] && B.meses[m].cerrado) return e.textContent='Ese mes ya está cerrado.';
+  const venta=parseMonto(f.venta); if(!(venta>=0)) return e.textContent='Escribe la venta del día.';
+  let util=null;
+  if(!est){ util=parseMonto(f.utilidad); if(!(util>=0)) return e.textContent='Escribe la utilidad del día (reporte de SICAR).'; if(util>venta) return e.textContent='La utilidad no puede ser mayor que la venta.'; }
+  const id=`${f.sucursal}_${f.fecha}`, ant=B.ventas.find(v=>v.id===id);
+  if(ant && ant.venta===venta && (ant.utilidad??null)===util){ toast('Sin cambios'); B.form=bonoFormNuevo(); pintarBono(true); return; }
+  const doc={sucursal:f.sucursal, fecha:f.fecha, mes:m, venta, utilidad:util, uid:S.user.uid, usuario:miUsuario(), nombre:S.perfil.nombre||miUsuario(), actualizadoEn:TS()};
+  if(!ant) doc.creadoEn=TS();
+  db.collection(COL.bonoVentas).doc(id).set(doc,{merge:true}).catch(err=>toast('No se guardó la venta: '+errorTexto(err),6000));
+  const det=`${f.sucursal} · ${fechaCorta(f.fecha)}: venta ${ant?$$(ant.venta)+' → ':''}${$$(venta)}${util!=null?` · utilidad ${ant&&ant.utilidad!=null?$$(ant.utilidad)+' → ':''}${$$(util)}`:''}`;
+  bitacoraBono(m, ant?(esDueno()?'Corrigió captura':'Corrigió su captura'):'Capturó venta', det, {sucursal:f.sucursal});
+  toast(ant?'Venta corregida ✓':'Venta guardada ✓');
+  const suc=f.sucursal; B.form=bonoFormNuevo(); if(esDueno()){ B.form.sucursal=suc; cargarDiaForm(B.form); }
+  pintarBono(true); programarRecordatorioBono();
+}
+function htmlMisDias(c,t){
+  const l=B.ventas.filter(v=>v.sucursal===t);
+  if(!l.length) return '';
+  return `<div class="titulo">Mis capturas de ${nombreMes(c.m)}</div>${l.map(v=>`<div class="item" data-dia="${esc(v.fecha)}" style="cursor:pointer">
+    <div class="cuerpo"><div class="linea1"><span>${fechaCorta(v.fecha)}</span><span class="imp">${$$(v.venta)}</span></div>
+    <div class="linea2">${v.utilidad!=null?'Utilidad '+$$(v.utilidad):'Sin utilidad (se estima) · toca para agregarla'}${v._subir?' · <span class="chip subir">por subir</span>':''}${v.uid!==S.user.uid?' · capturó '+esc(v.nombre||v.usuario):''}</div></div></div>`).join('')}`;
+}
+function htmlAjustes(t){
+  const l=B.bit.filter(b=>b.tipo==='ajuste' && (!b.sucursal || b.sucursal===t)).slice(0,15);
+  if(!l.length) return '';
+  return `<div class="titulo">Ajustes del dueño este mes</div><div class="tarjeta">${l.map(b=>`<div style="padding:7px 0;border-bottom:1px solid var(--borde);font-size:14px">
+    <b>${esc(b.accion)}</b> <span style="color:var(--gris);font-size:12px">${fmtTS(b.creadoEn)}</span>
+    <div style="white-space:pre-line">${esc(b.detalle)}</div>${b.motivo?`<div style="color:var(--gris);font-size:13px">Motivo: ${esc(b.motivo)}</div>`:''}</div>`).join('')}</div>`;
+}
+function htmlHistorial(t){
+  const l=Object.values(B.meses).filter(m=>m.cerrado && m.cierre && m.cierre.bono).sort((a,b)=>b.id.localeCompare(a.id));
+  if(!l.length) return '';
+  const rec=Math.max(...l.map(m=>m.cierre.bono[t]||0));
+  return `<div class="titulo">Mis meses anteriores</div><div class="tarjeta"><table class="tabla">${l.map(m=>{ const v=m.cierre.bono[t]||0;
+    return `<tr><td>${nombreMes(m.id)}${v>0&&v===rec?' 🏅':''}</td><td class="n"><b>${$0(v)}</b></td></tr>`; }).join('')}</table>
+    ${rec>0?`<div class="sub" style="margin:8px 0 0">🏅 Tu mejor mes: ${$0(rec)}</div>`:''}</div>`;
+}
+function htmlAccionesDueno(c){
+  const nd=(c.md.descuentos||[]).length, nc=TIENDAS.filter(t=>!c.T[t].condOk).length;
+  const btn=(id,ico,t,s)=>`<div class="item" id="${id}" style="cursor:pointer;align-items:center"><span style="font-size:22px">${ico}</span><div class="cuerpo"><div class="linea1">${t}</div><div class="linea2">${s}</div></div><span>›</span></div>`;
+  return `<div class="titulo">Control del dueño</div><div class="menu">
+    ${btn('bParams','⚙️','Parámetros del mes',`Mínimo ${kMil(c.minT)} · Meta ${kMil(c.metaT)} · ${pct(c.p.pct1)} / ${pct(c.p.pct2)} · tope ${$0(c.p.tope)}`)}
+    ${btn('bDesc','➖','Descuentos',nd?`${nd} este mes · ${$0(TIENDAS.reduce((s,t)=>s+c.T[t].desc,0))}`:'Pedidos tuyos al 50%, ventas no cobradas')}
+    ${btn('bCond','✅','Condiciones',nc?`${nc} encargado${nc>1?'s':''} sin cumplir`:'Todos al corriente')}
+    ${btn('bCierre','🔒','Cierre del mes',c.cerrado?'Cerrado · reabrir o ver':'Datos oficiales de SICAR y cierre')}
+    ${btn('bFrases','💬','Frases',`${listaFrases().length} frases`)}
+    ${btn('bBit','📜','Bitácora y avisos',`${B.bit.length} movimientos · ${B.avisos.filter(a=>a.mes===c.m).length} avisos`)}
+  </div>`;
+}
+function htmlDiasDueno(c){
+  const fechas=[...new Set(B.ventas.map(v=>v.fecha))];
+  if(!fechas.length) return `<div class="vacio">Sin ventas capturadas en ${nombreMes(c.m)}.</div>`;
+  return `<div class="titulo">Capturas por día (toca para editar o borrar)</div>${fechas.map(fe=>`<div class="tarjeta" style="padding:10px 12px">
+    <div style="font-weight:700;margin-bottom:4px">${fechaCorta(fe)}${esLaborable(fe,c.p)?'':' <span class="chip gris">no laborable</span>'}</div>
+    ${TIENDAS.map(t=>{ const v=B.ventas.find(x=>x.fecha===fe&&x.sucursal===t);
+      return v?`<div class="fila" data-ev="${esc(v.id)}" style="cursor:pointer;font-size:14px;padding:4px 0"><span>${esc(t)}</span><span style="text-align:right">${$$(v.venta)}${v.utilidad!=null?` · <span style="color:var(--gris)">${$$(v.utilidad)}</span>`:''}${v._subir?' <span class="chip subir">por subir</span>':''}</span></div>`
+        :`<div class="fila" style="font-size:14px;padding:4px 0;color:var(--gris)"><span>${esc(t)}</span><span style="text-align:right">sin captura</span></div>`; }).join('')}
+  </div>`).join('')}`;
+}
+function conectarBottom(){
+  const on=(id,fn)=>{ const n=el(id); if(n) n.onclick=fn; };
+  on('bParams',modalParamsBono); on('bDesc',()=>modalDescuentos()); on('bCond',modalCondiciones); on('bCierre',modalCierre);
+  on('bFrases',()=>irA('bonofrases')); on('bBit',()=>irA('bonobit'));
+  el('bonoBottom').querySelectorAll('[data-ev]').forEach(n=>n.onclick=()=>modalEditarVenta(n.dataset.ev));
+  el('bonoBottom').querySelectorAll('[data-dia]').forEach(n=>n.onclick=()=>{
+    if(B.meses[B.mes]&&B.meses[B.mes].cerrado) return toast('El mes está cerrado.');
+    B.form.fecha=n.dataset.dia; B.form._abierta=true; cargarDiaForm(B.form); B.form._sucio=false; pintarCapturaBono(calcBono(B.mes)); el('bonoCap').scrollIntoView({behavior:'smooth'});
+  });
+}
+
+/* ---------- Dueño: editar captura ---------- */
+function modalEditarVenta(id){
+  const v=B.ventas.find(x=>x.id===id); if(!v) return;
+  const est=!!paramsMes(v.mes).utilEstimada[v.sucursal];
+  abrirModal(`<h2>${esc(v.sucursal)} · ${fechaCorta(v.fecha)}</h2><p class="sub" style="margin:0">Capturó ${esc(v.nombre||v.usuario||'')}</p>
+    <label>Venta</label><input id="eV" class="monto" inputmode="decimal" value="${v.venta??''}">
+    <label>Utilidad${est?' (opcional: esta tienda usa margen estimado)':''}</label><input id="eU" inputmode="decimal" value="${v.utilidad??''}">
+    <label>Motivo (lo ve el encargado)</label><input id="eM" placeholder="Ej. no coincidía con el reporte de SICAR">
+    <label class="check"><input type="checkbox" id="eAv"> Avisar al encargado</label>
+    <div class="error" id="eErr"></div>
+    <div class="fila"><button class="btn peligro" id="eBorrar">Borrar</button><button class="btn sec" id="eNo">Cancelar</button><button class="btn" id="eSi">Guardar</button></div>`);
+  el('eNo').onclick=cerrarModal;
+  el('eBorrar').onclick=()=>{
+    const b=el('eBorrar'); if(!b.dataset.ok){ b.dataset.ok='1'; b.textContent='¿Seguro?'; return; }
+    db.collection(COL.bonoVentas).doc(id).delete().catch(e=>toast(errorTexto(e)));
+    const mot=el('eM').value.trim(), det=`${v.sucursal} · ${fechaCorta(v.fecha)}: venta ${$$(v.venta)}${v.utilidad!=null?' · utilidad '+$$(v.utilidad):''}`;
+    bitacoraBono(v.mes,'Borró captura',det,{sucursal:v.sucursal,motivo:mot});
+    if(el('eAv').checked) crearAvisoBono(v.mes,'Se borró una captura',det,mot,v.sucursal);
+    cerrarModal(); toast('Captura borrada');
+  };
+  el('eSi').onclick=()=>{
+    const venta=parseMonto(el('eV').value), util=el('eU')? (String(el('eU').value).trim()===''?null:parseMonto(el('eU').value)) : v.utilidad??null;
+    if(!(venta>=0)) return el('eErr').textContent='Venta no válida.';
+    if(util!=null && !(util>=0)) return el('eErr').textContent='Utilidad no válida.';
+    if(venta===v.venta && util===(v.utilidad??null)){ cerrarModal(); return; }
+    db.collection(COL.bonoVentas).doc(id).update({venta, utilidad:util, actualizadoEn:TS()}).catch(e=>toast(errorTexto(e)));
+    const mot=el('eM').value.trim();
+    const det=`${v.sucursal} · ${fechaCorta(v.fecha)}: venta ${$$(v.venta)} → ${$$(venta)}${(util!=null||v.utilidad!=null)?` · utilidad ${v.utilidad!=null?$$(v.utilidad):'—'} → ${util!=null?$$(util):'—'}`:''}`;
+    bitacoraBono(v.mes,'Corrigió captura',det,{sucursal:v.sucursal,motivo:mot});
+    if(el('eAv').checked) crearAvisoBono(v.mes,'Se corrigió una captura',det,mot,v.sucursal);
+    cerrarModal(); toast('Captura corregida ✓');
+  };
+}
+
+/* ---------- Dueño: parámetros ---------- */
+function difParams(a,b){
+  const l=[], ch=(et,x,y,f)=>{ if(JSON.stringify(x)!==JSON.stringify(y)) l.push(`${et}: ${f(x)} → ${f(y)}`); };
+  TIENDAS.forEach(t=>{ ch('Mínimo '+t,a.min[t],b.min[t],$0); ch('Meta '+t,a.meta[t],b.meta[t],$0); ch('Utilidad estimada '+t,!!a.utilEstimada[t],!!b.utilEstimada[t],x=>x?'sí':'no'); });
+  ch('Del mínimo a la meta',a.pct1,b.pct1,pct); ch('Arriba de la meta',a.pct2,b.pct2,pct); ch('Margen mínimo',a.margenMin,b.margenMin,pct);
+  ch('Margen de respaldo',a.margenRef,b.margenRef,pct); ch('Premio doble meta',a.premio,b.premio,$0); ch('Tope por persona',a.tope,b.tope,$0);
+  ch('Domingos laborables',!!a.domingos,!!b.domingos,x=>x?'sí':'no');
+  ch('Días no laborables',a.noLab||[],b.noLab||[],x=>x.length?x.map(f=>+f.slice(8)).join(', '):'ninguno');
+  return l;
+}
+function modalParamsBono(){
+  const m=B.mes, p=paramsMes(m), sig=mesSig(m);
+  const n=(id,v)=>`<input id="${id}" inputmode="decimal" value="${esc(v)}">`;
+  abrirModal(`<h2>Parámetros · ${nombreMes(m)}</h2>
+    <p class="sub">El mínimo es tu punto de equilibrio: la utilidad bruta que cubre todos los gastos (incluido tu sueldo).</p>
+    ${TIENDAS.map((t,i)=>`<div class="titulo">${esc(t)}</div><div class="fila"><div><label>Mínimo</label>${n('pMin'+i,p.min[t])}</div><div><label>Meta</label>${n('pMeta'+i,p.meta[t])}</div></div>
+      <label class="check"><input type="checkbox" id="pEst${i}" ${p.utilEstimada[t]?'checked':''}> Utilidad estimada con el margen de la otra tienda</label>`).join('')}
+    <div class="titulo" style="margin-top:16px">Porcentajes y montos</div>
+    <div class="fila"><div><label>Del mínimo a la meta (%)</label>${n('pP1',r2(p.pct1*100))}</div><div><label>Arriba de la meta (%)</label>${n('pP2',r2(p.pct2*100))}</div></div>
+    <div class="fila"><div><label>Margen mínimo (%)</label>${n('pMg',r2(p.margenMin*100))}</div><div><label>Margen de respaldo (%)</label>${n('pMr',r2(p.margenRef*100))}</div></div>
+    <p class="sub" style="margin:4px 0 0">El margen de respaldo se usa para estimar mientras la tienda de referencia no tenga ventas capturadas.</p>
+    <div class="fila"><div><label>Premio doble meta</label>${n('pPr',p.premio)}</div><div><label>Tope por persona</label>${n('pTo',p.tope)}</div></div>
+    <div class="titulo" style="margin-top:16px">Días</div>
+    <label class="check"><input type="checkbox" id="pDom" ${p.domingos?'checked':''}> Los domingos se trabaja</label>
+    <label>Días no laborables del mes (números separados por coma)</label><input id="pNoLab" value="${esc(p.noLab.filter(f=>mesDe(f)===m).map(f=>+f.slice(8)).join(', '))}" placeholder="Ej. 25">
+    <label>Hora del recordatorio diario a encargados</label><input id="pHora" type="time" value="${esc(B.conf.hora||'19:00')}">
+    <div class="titulo" style="margin-top:16px">Aplicar</div>
+    <select id="pA"><option value="${m}">A ${nombreMes(m)}</option><option value="${sig}">Desde ${nombreMes(sig)}</option></select>
+    <p class="sub" style="margin:6px 0 0">Regla acordada: a mitad de mes solo aplica un cambio que favorezca a los encargados; si no, aplícalo desde el mes siguiente.</p>
+    <label>Motivo del cambio (lo ven los encargados)</label><input id="pMot" placeholder="Ej. bajaron los gastos: ya no se renta la bodega">
+    <label class="check"><input type="checkbox" id="pAv" checked> Avisar a los encargados</label>
+    <div class="error" id="pErr"></div>
+    <div class="fila"><button class="btn sec" id="pNo">Cancelar</button><button class="btn" id="pSi">Guardar</button></div>`);
+  el('pNo').onclick=cerrarModal;
+  el('pSi').onclick=()=>{
+    const e=el('pErr'), num=id=>parseMonto(el(id).value), destino=el('pA').value;
+    const np={min:{},meta:{},utilEstimada:{}};
+    for(const [i,t] of TIENDAS.entries()){ np.min[t]=num('pMin'+i); np.meta[t]=num('pMeta'+i); np.utilEstimada[t]=el('pEst'+i).checked;
+      if(!(np.min[t]>=0)||!(np.meta[t]>=0)) return e.textContent=`Revisa mínimo y meta de ${t}.`;
+      if(np.meta[t]<np.min[t]) return e.textContent=`La meta de ${t} no puede ser menor que su mínimo.`; }
+    if(TIENDAS.every(t=>np.utilEstimada[t])) return e.textContent='Al menos una tienda debe capturar su utilidad.';
+    np.pct1=num('pP1')/100; np.pct2=num('pP2')/100; np.margenMin=num('pMg')/100; np.margenRef=num('pMr')/100; np.premio=num('pPr'); np.tope=num('pTo');
+    if([np.pct1,np.pct2,np.margenMin,np.margenRef,np.premio,np.tope].some(x=>!(x>=0))) return e.textContent='Revisa porcentajes y montos.';
+    if(!(np.pct1>0)||!(np.pct2>0)) return e.textContent='Los porcentajes del bono deben ser mayores que 0.';
+    np.domingos=el('pDom').checked;
+    const nd=diasMes(destino).length, dias=el('pNoLab').value.split(/[,\s]+/).filter(Boolean).map(Number);
+    if(dias.some(d=>!(d>=1&&d<=nd))) return e.textContent=`Días no laborables: números del 1 al ${nd}.`;
+    np.noLab=[...new Set(dias)].sort((a,b)=>a-b).map(d=>`${destino}-${String(d).padStart(2,'0')}`);
+    const hora=el('pHora').value||'19:00';
+    if(hora!==(B.conf.hora||'19:00')) db.collection(COL.bonoConf).doc('general').set({hora},{merge:true}).catch(err=>toast(errorTexto(err)));
+    const cambios=difParams(paramsMes(destino),np), mot=el('pMot').value.trim();
+    if(!cambios.length){ cerrarModal(); toast(hora!==(B.conf.hora||'19:00')?'Hora del recordatorio guardada ✓':'Sin cambios'); return; }
+    if(el('pAv').checked && !mot) return e.textContent='Escribe el motivo: es lo que verán los encargados.';
+    const base=B.meses[destino]?{}:{mes:destino,descuentos:[],condiciones:{},oficial:{},cerrado:false,creadoEn:TS()};
+    db.collection(COL.bonoMeses).doc(destino).set({...base, params:np, actualizadoEn:TS()},{merge:true}).catch(err=>toast(errorTexto(err)));
+    bitacoraBono(destino,'Cambió parámetros del bono',cambios.join('\n'),{motivo:mot});
+    if(el('pAv').checked) crearAvisoBono(destino,`Cambio en el bono · ${nombreMes(destino)}`,cambios.join('\n'),mot,null);
+    cerrarModal(); toast('Parámetros guardados ✓');
+  };
+}
+
+/* ---------- Dueño: descuentos ---------- */
+function modalDescuentos(listaLocal, editId){
+  const m=B.mes, md=B.meses[m]||{}, l=listaLocal||md.descuentos||[], ed=editId?l.find(d=>d.id===editId):null;
+  abrirModal(`<h2>Descuentos · ${nombreMes(m)}</h2>
+    <p class="sub">Se restan a la utilidad de la tienda para el bono. Pedido que negociaste tú: pon el 50% de su utilidad. Venta a crédito no cobrada: su utilidad completa (cuando se cobre, quita el descuento).</p>
+    ${l.length?l.map(d=>`<div class="item"><div class="cuerpo"><div class="linea1"><span>${esc(d.sucursal)}</span><span class="imp">−${$$(d.monto)}</span></div>
+      <div class="linea2">${esc(d.motivo)} · ${fechaCorta(d.fecha)}</div></div>
+      <div class="orden"><button data-ed="${d.id}" title="Editar">✏️</button><button data-del="${d.id}" title="Quitar">✕</button></div></div>`).join(''):'<div class="vacio" style="padding:12px">Sin descuentos este mes.</div>'}
+    <div class="titulo" style="margin-top:14px">${ed?'Editar descuento':'Agregar descuento'}</div>
+    <div class="fila"><div><label>Tienda</label><select id="dSuc">${TIENDAS.map(t=>`<option ${ed&&ed.sucursal===t?'selected':''}>${esc(t)}</option>`).join('')}</select></div>
+      <div><label>Monto (utilidad)</label><input id="dMon" inputmode="decimal" value="${ed?ed.monto:''}"></div></div>
+    <label>Motivo (lo ve el encargado)</label><input id="dMot" value="${ed?esc(ed.motivo):''}" placeholder="Ej. pedido Ayuntamiento folio 8123, al 50%">
+    <label class="check"><input type="checkbox" id="dAv" checked> Avisar al encargado de esa tienda</label>
+    <div class="error" id="dErr"></div>
+    <div class="fila"><button class="btn sec" id="dNo">Cerrar</button><button class="btn" id="dSi">${ed?'Guardar cambio':'Agregar'}</button></div>`);
+  const guardar=(nl,accion,det,suc,mot)=>{
+    db.collection(COL.bonoMeses).doc(m).set({descuentos:nl, actualizadoEn:TS()},{merge:true}).catch(e=>toast(errorTexto(e)));
+    bitacoraBono(m,accion,det,{sucursal:suc,motivo:mot});
+    if(el('dAv') && el('dAv').checked) crearAvisoBono(m,accion,det,mot,suc);
+  };
+  el('dNo').onclick=cerrarModal;
+  el('modal').querySelectorAll('[data-ed]').forEach(b=>b.onclick=()=>modalDescuentos(l,b.dataset.ed));
+  el('modal').querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{
+    if(!b.dataset.ok){ b.dataset.ok='1'; b.textContent='¿?'; b.style.background='var(--rojo-claro)'; return; }
+    const d=l.find(x=>x.id===b.dataset.del), nl=l.filter(x=>x.id!==d.id);
+    guardar(nl,'Quitó un descuento',`${d.sucursal}: −${$$(d.monto)} (${d.motivo})`,d.sucursal,'');
+    modalDescuentos(nl);
+  });
+  el('dSi').onclick=()=>{
+    const suc=el('dSuc').value, monto=parseMonto(el('dMon').value), mot=el('dMot').value.trim(), e=el('dErr');
+    if(!(monto>0)) return e.textContent='Escribe el monto a descontar.';
+    if(!mot) return e.textContent='Escribe el motivo.';
+    let nl, accion, det;
+    if(ed){ nl=l.map(x=>x.id===ed.id?{...x,sucursal:suc,monto,motivo:mot}:x); accion='Cambió un descuento'; det=`${ed.sucursal} −${$$(ed.monto)} → ${suc} −${$$(monto)}`; }
+    else { nl=[...l,{id:uid(),sucursal:suc,monto,motivo:mot,fecha:hoy()}]; accion='Descuento al bono'; det=`${suc}: −${$$(monto)} de utilidad`; }
+    guardar(nl,accion,det,suc,mot);
+    toast('Descuento guardado ✓'); modalDescuentos(nl);
+  };
+}
+
+/* ---------- Dueño: condiciones ---------- */
+function modalCondiciones(){
+  const m=B.mes, cond=(B.meses[m]||{}).condiciones||{};
+  abrirModal(`<h2>Condiciones · ${nombreMes(m)}</h2>
+    <p class="sub">Margen combinado de 20% o más (se revisa solo) · crédito solo con tu autorización · sobre de créditos y caja chica cuadrados · sin faltas injustificadas. Quien no cumpla pierde su parte del mes; el otro conserva la suya.</p>
+    ${TIENDAS.map((t,i)=>{ const c=cond[t]||{}; return `<div class="titulo" style="margin-top:14px">Encargado de ${esc(t)}</div>
+      <label class="check"><input type="checkbox" id="cOk${i}" ${c.ok===false?'':'checked'}> Cumplió todas las condiciones</label>
+      <label>Si no cumplió, ¿cuál? (lo ve el encargado)</label><input id="cMot${i}" value="${esc(c.motivo||'')}" placeholder="Ej. 2 faltas injustificadas (14 y 21)">`; }).join('')}
+    <label class="check"><input type="checkbox" id="cAv" checked> Avisar al encargado si cambia</label>
+    <div class="error" id="cErr"></div>
+    <div class="fila"><button class="btn sec" id="cNo">Cancelar</button><button class="btn" id="cSi">Guardar</button></div>`);
+  el('cNo').onclick=cerrarModal;
+  el('cSi').onclick=()=>{
+    const nc={}, cambios=[];
+    for(const [i,t] of TIENDAS.entries()){
+      const ok=el('cOk'+i).checked, motivo=el('cMot'+i).value.trim();
+      if(!ok && !motivo) return el('cErr').textContent=`Escribe qué condición no cumplió ${t}.`;
+      nc[t]={ok, motivo: ok?'':motivo};
+      const a=cond[t]||{ok:true,motivo:''};
+      if((a.ok!==false)!==ok || (a.motivo||'')!==nc[t].motivo) cambios.push([t, ok?'Cumple las condiciones del bono':'No cumplió una condición del bono', ok?'':motivo]);
+    }
+    if(!cambios.length){ cerrarModal(); return; }
+    db.collection(COL.bonoMeses).doc(m).set({condiciones:nc, actualizadoEn:TS()},{merge:true}).catch(e=>toast(errorTexto(e)));
+    cambios.forEach(([t,acc,mot])=>{ bitacoraBono(m,acc,t,{sucursal:t,motivo:mot}); if(el('cAv').checked) crearAvisoBono(m,acc,`${nombreMes(m)} · ${t}`,mot,t); });
+    cerrarModal(); toast('Condiciones guardadas ✓');
+  };
+}
+
+/* ---------- Dueño: cierre del mes ---------- */
+function modalCierre(){
+  const m=B.mes, md=B.meses[m]||{}, of=md.oficial||{}, cap=calcBono(m,{...md,oficial:{}});
+  abrirModal(`<h2>Cierre · ${nombreMes(m)}</h2>
+    <p class="sub">Opcional: pon venta y utilidad del reporte mensual de SICAR. Si dejas un campo vacío se usa lo capturado día por día (y la utilidad estimada donde aplique). Si alguna tienda tuvo costos mal en SICAR, deja vacía su utilidad.</p>
+    ${TIENDAS.map((t,i)=>`<div class="titulo" style="margin-top:14px">${esc(t)} <span style="text-transform:none;font-weight:500">· capturado: venta ${$0(cap.T[t].venta)} · utilidad ${$0(cap.T[t].util)}${cap.T[t].estimada?' (est.)':''}</span></div>
+      <div class="fila"><div><label>Venta oficial</label><input id="oV${i}" data-of inputmode="decimal" value="${of[t]&&typeof of[t].venta==='number'?of[t].venta:''}"></div>
+      <div><label>Utilidad oficial</label><input id="oU${i}" data-of inputmode="decimal" value="${of[t]&&typeof of[t].util==='number'?of[t].util:''}"></div></div>`).join('')}
+    <div id="cPrev" class="tarjeta" style="margin-top:14px;background:var(--fondo)"></div>
+    <div class="error" id="oErr"></div>
+    ${md.cerrado?`<div class="aviso">Mes cerrado ${fmtTS(md.cerradoEn)}.</div>
+      <div class="fila"><button class="btn sec" id="oNo">Cerrar ventana</button><button class="btn peligro" id="oReabrir">Reabrir mes</button></div>`
+     :`<div class="fila"><button class="btn sec" id="oNo">Cancelar</button><button class="btn sec" id="oGuardar">Guardar datos</button></div>
+      <button class="btn verde" id="oCerrar">Cerrar mes y avisar a los encargados</button>`}`);
+  const leer=()=>{ const o={}; let mal=false;
+    TIENDAS.forEach((t,i)=>{ const v=el('oV'+i).value.trim(), u=el('oU'+i).value.trim(); const x={};
+      if(v!==''){ x.venta=parseMonto(v); if(!(x.venta>=0)) mal=true; } if(u!==''){ x.util=parseMonto(u); if(!(x.util>=0)) mal=true; }
+      if(Object.keys(x).length) o[t]=x; });
+    return mal?null:o; };
+  const prev=()=>{ const o=leer(); if(!o){ el('cPrev').innerHTML='<span style="color:var(--rojo)">Revisa los montos.</span>'; return; }
+    const c=calcBono(m,{...md,oficial:o});
+    el('cPrev').innerHTML=`<table class="tabla"><tr><td>Utilidad para el bono (dos tiendas)</td><td class="n"><b>${$0(c.total)}</b></td></tr>
+      <tr><td>Margen combinado</td><td class="n">${pct(c.margen)} ${c.margenOk?'✓':'✗'}</td></tr><tr><td>Bolsa</td><td class="n">${$0(c.bolsa)}</td></tr>
+      ${TIENDAS.map(t=>`<tr><td>Bono encargado ${esc(t)}${c.T[t].condOk?'':' (no cumplió)'}</td><td class="n" style="color:var(--verde)"><b>${$0(c.T[t].bono)}</b></td></tr>`).join('')}</table>`; };
+  el('modal').querySelectorAll('[data-of]').forEach(i=>i.oninput=prev); prev();
+  el('oNo').onclick=cerrarModal;
+  const guardarOf=()=>{ const o=leer(); if(!o){ el('oErr').textContent='Revisa los montos.'; return null; }
+    if(JSON.stringify(o)!==JSON.stringify(of)){
+      db.collection(COL.bonoMeses).doc(m).set({oficial:o, actualizadoEn:TS()},{merge:true}).catch(e=>toast(errorTexto(e)));
+      bitacoraBono(m,'Datos oficiales de SICAR',TIENDAS.map(t=>`${t}: ${o[t]?[o[t].venta!=null?'venta '+$$(o[t].venta):'',o[t].util!=null?'utilidad '+$$(o[t].util):''].filter(Boolean).join(' · '):'lo capturado'}`).join('\n'));
+    }
+    return o; };
+  if(el('oGuardar')) el('oGuardar').onclick=()=>{ if(guardarOf()){ cerrarModal(); toast('Datos guardados ✓'); } };
+  if(el('oCerrar')) el('oCerrar').onclick=()=>{
+    const b=el('oCerrar'); if(!b.dataset.ok){ b.dataset.ok='1'; b.textContent='¿Seguro? Toca otra vez para cerrar'; return; }
+    const o=guardarOf(); if(!o) return;
+    const c=calcBono(m,{...md,oficial:o});
+    const cierre={total:r2(c.total), bolsa:r2(c.bolsa), cada:r2(c.cada), premio:c.premio, margen:c.margen, bono:{}, ub:{}};
+    TIENDAS.forEach(t=>{ cierre.bono[t]=c.T[t].bono; cierre.ub[t]=r2(c.T[t].ub); });
+    db.collection(COL.bonoMeses).doc(m).set({cerrado:true, cerradoEn:TS(), cierre},{merge:true}).catch(e=>toast(errorTexto(e)));
+    bitacoraBono(m,'Cerró el mes',TIENDAS.map(t=>`Bono ${t}: ${$0(c.T[t].bono)}`).join('\n')+`\nUtilidad dos tiendas: ${$0(c.total)}`);
+    TIENDAS.forEach(t=>{ const x=c.T[t];
+      crearAvisoBono(m,`Cierre de ${nombreMes(m)}`,
+        `Utilidad de las dos tiendas: ${$0(c.total)}\nTu bono: ${$0(x.bono)}${!x.condOk?` (no se cumplió una condición${x.condMotivo?': '+x.condMotivo:''})`:''}${c.doble?'\n✅ Doble meta: incluye el premio':''}\n\n${fraseDe(x.bono>0?'cierre_si':'cierre_no',m+t)}\n\nSe paga el primer sábado del mes siguiente.`,'',t); });
+    cerrarModal(); toast('Mes cerrado ✓');
+  };
+  if(el('oReabrir')) el('oReabrir').onclick=()=>{
+    const b=el('oReabrir'); if(!b.dataset.ok){ b.dataset.ok='1'; b.textContent='¿Seguro?'; return; }
+    db.collection(COL.bonoMeses).doc(m).set({cerrado:false},{merge:true}).catch(e=>toast(errorTexto(e)));
+    bitacoraBono(m,'Reabrió el mes','Para corregir datos; el bono se volverá a cerrar.');
+    crearAvisoBono(m,`Se reabrió ${nombreMes(m)}`,'El dueño reabrió el mes para corregir datos. El bono oficial será el del nuevo cierre.','',null);
+    cerrarModal(); toast('Mes reabierto');
+  };
+}
+
+/* ---------- Dueño: frases ---------- */
+function guardarFrases(lista){ db.collection(COL.bonoConf).doc('frases').set({lista, actualizadoEn:TS()}).catch(e=>toast(errorTexto(e))); B.frases=lista; }
+function renderBonoFrases(){
+  const l=listaFrases();
+  el('contenido').innerHTML=`${cabeceraBono('Frases')}
+    <p class="sub">Las del día rotan solas; las de momentos especiales salen cuando pasa ese momento. Toca una para editarla.</p>
+    <button class="btn" id="fNueva" style="margin:0 0 12px">+ Agregar frase</button>
+    ${CAT_FRASE.map(([cat,nom])=>{ const fs=l.filter(f=>f.cat===cat); return `<div class="titulo">${nom}</div>${fs.length?fs.map(f=>`<div class="item" data-fr="${esc(f.id)}" style="cursor:pointer">
+      <div class="cuerpo"><div class="linea3" style="margin:0;font-size:15px${f.activa===false?';color:var(--gris);text-decoration:line-through':''}">${esc(f.texto)}</div></div></div>`).join(''):'<div class="sub" style="margin:0 2px 10px">Sin frases (se usa una del día).</div>'}`; }).join('')}
+    <button class="btn sec" id="fRestaurar">Restaurar las frases originales</button>`;
+  el('volverBono').onclick=()=>irA('bono');
+  el('fNueva').onclick=()=>modalFrase(null);
+  el('contenido').querySelectorAll('[data-fr]').forEach(n=>n.onclick=()=>modalFrase(n.dataset.fr));
+  el('fRestaurar').onclick=async()=>{ if(await confirmar('Restaurar frases','Se reemplazan todas tus frases por las originales.','Restaurar','sec')){ guardarFrases(FRASES_DEF); renderBonoFrases(); toast('Frases restauradas'); } };
+}
+function modalFrase(id){
+  const l=listaFrases(), f=id?l.find(x=>x.id===id):{cat:'dia',texto:'',activa:true};
+  abrirModal(`<h2>${id?'Editar frase':'Nueva frase'}</h2>
+    <label>Cuándo sale</label><select id="frCat">${CAT_FRASE.map(([c,n])=>`<option value="${c}" ${c===f.cat?'selected':''}>${n}</option>`).join('')}</select>
+    <label>Frase</label><textarea id="frTx" rows="3">${esc(f.texto)}</textarea>
+    <label class="check"><input type="checkbox" id="frAct" ${f.activa!==false?'checked':''}> Activa</label>
+    <div class="error" id="frErr"></div>
+    <div class="fila">${id?'<button class="btn peligro" id="frDel">Borrar</button>':''}<button class="btn sec" id="frNo">Cancelar</button><button class="btn" id="frSi">Guardar</button></div>`);
+  el('frNo').onclick=cerrarModal;
+  el('frSi').onclick=()=>{
+    const tx=el('frTx').value.trim(); if(!tx) return el('frErr').textContent='Escribe la frase.';
+    const nf={id:id||uid(), cat:el('frCat').value, texto:tx, activa:el('frAct').checked};
+    guardarFrases(id?l.map(x=>x.id===id?nf:x):[...l,nf]); cerrarModal(); renderBonoFrases(); toast('Frase guardada ✓');
+  };
+  if(el('frDel')) el('frDel').onclick=()=>{ const b=el('frDel'); if(!b.dataset.ok){ b.dataset.ok='1'; b.textContent='¿Seguro?'; return; }
+    guardarFrases(l.filter(x=>x.id!==id)); cerrarModal(); renderBonoFrases(); toast('Frase borrada'); };
+}
+
+/* ---------- Dueño: bitácora y avisos ---------- */
+function renderBonoBit(){
+  const encs=S.usuarios.filter(u=>u.activo===true && u.rol==='encargado' && !u.reemplazadoPor && TIENDAS.includes(u.sucursal));
+  const avs=B.avisos.filter(a=>a.mes===B.mes);
+  el('contenido').innerHTML=`${cabeceraBono('Bitácora · '+nombreMes(B.mes))}
+    <div class="titulo">Avisos</div>
+    ${avs.length?avs.map(a=>{ const dest=encs.filter(u=>!a.sucursal||u.sucursal===a.sucursal);
+      return `<div class="item"><div class="cuerpo"><div class="linea1"><span>${esc(a.titulo)}</span><span class="imp" style="font-size:12px;color:var(--gris)">${fmtTS(a.creadoEn)}</span></div>
+        <div class="linea3" style="white-space:pre-line">${esc(a.texto)}</div>${a.motivo?`<div class="linea2">Motivo: ${esc(a.motivo)}</div>`:''}
+        <div class="linea2">${dest.length?dest.map(u=>`${a.enterados&&a.enterados[u.id]?'✅':'⏳'} ${esc(u.nombre||u.usuario)}`).join(' · '):'Sin encargados para esta tienda'}</div></div>
+        <div class="orden"><button data-avdel="${a.id}" title="Borrar aviso">✕</button></div></div>`; }).join(''):'<div class="sub" style="margin:0 2px 10px">Sin avisos este mes.</div>'}
+    <div class="titulo">Movimientos</div>
+    ${B.bit.length?B.bit.map(b=>`<div class="item"><div class="cuerpo"><div class="linea1"><span>${esc(b.accion)}</span><span class="imp" style="font-size:12px;color:var(--gris)">${fmtTS(b.creadoEn)}</span></div>
+      <div class="linea3" style="white-space:pre-line">${esc(b.detalle)}</div>
+      <div class="linea2">${esc(b.nombre||b.usuario)}${b.motivo?' · Motivo: '+esc(b.motivo):''}</div></div></div>`).join(''):'<div class="vacio">Sin movimientos.</div>'}`;
+  el('volverBono').onclick=()=>irA('bono');
+  el('contenido').querySelectorAll('[data-avdel]').forEach(b=>b.onclick=()=>{
+    if(!b.dataset.ok){ b.dataset.ok='1'; b.textContent='¿?'; b.style.background='var(--rojo-claro)'; return; }
+    db.collection(COL.bonoAvisos).doc(b.dataset.avdel).delete().catch(e=>toast(errorTexto(e)));
+  });
+}
+
 /* ================= Teclado: que no tape el formulario ================= */
 function setTeclado(px){
   document.documentElement.style.setProperty('--kb', Math.max(0,Math.round(px))+'px');
@@ -1389,7 +2161,8 @@ if(esNativo && window.Capacitor.Plugins && window.Capacitor.Plugins.Keyboard){
 /* ================= Android: botón atrás ================= */
 if(esNativo && window.Capacitor.Plugins && window.Capacitor.Plugins.App){
   window.Capacitor.Plugins.App.addListener('backButton',()=>{
-    if(!el('fondoModal').classList.contains('oculto')) return cerrarModal();
+    if(!el('fondoModal').classList.contains('oculto')) return S.bloqueaModal ? null : cerrarModal();
+    if(['bonofrases','bonobit'].includes(S.pantalla)) return irA('bono');
     if(S.form && S.form.id){ const v=S.form._volver||'capturar'; S.form=null; return irA(v); }
     if(['catalogo','usuarios','unidades','listas','exportar','cajachica'].includes(S.pantalla) || (S.pantalla==='apartado' && esDueno())) return irA('mas');
     const inicio = esDueno()?'inicio':'capturar';
@@ -1403,6 +2176,8 @@ document.addEventListener('visibilitychange',()=>{
   if(document.hidden || !S.perfil) return;
   if(!esDueno() && S.mesSel!==mesDe(hoy())) suscribirRegistros();      // cambió el mes
   if(['capturar','apartado'].includes(S.pantalla)) render();            // refresca la fecha de hoy sin perder lo escrito
+  if(!esDueno() && B.mes!==mesDe(hoy())){ B.mes=mesDe(hoy()); B.form=null; suscribirMesBono(); }
+  if(S.pantalla==='bono' && B.form && !B.form._sucio){ B.form=null; render(); }
 });
 
 /* ================= Service worker (solo web) ================= */

@@ -1446,6 +1446,7 @@ function suscribirBono(){
     B.mesesListo = B.mesesListo || !snap.metadata.fromCache;
     if(esDueno()){ asegurarMesBono(mesDe(hoy())); asegurarMesBono(B.mes); }
     refrescar('bono');
+    if(!esDueno()) setTimeout(revisarAvisosBono,600);
   }, err=>avisoReglasBono('Bono',err)));
   S.listeners.push(db.collection(COL.bonoConf).doc('frases').onSnapshot(s=>{ B.frases=s.exists?(s.data().lista||[]):null; refrescar('bono'); },()=>{}));
   S.listeners.push(db.collection(COL.bonoConf).doc('general').onSnapshot(s=>{ B.conf=s.exists?s.data():{}; programarRecordatorioBono(); },()=>{}));
@@ -1475,18 +1476,31 @@ function normParams(p){
   const r={...D,...p};
   r.min={...D.min,...(p.min||{})}; r.meta={...D.meta,...(p.meta||{})}; r.utilEstimada={...D.utilEstimada,...(p.utilEstimada||{})};
   r.noLab=Array.isArray(p.noLab)?p.noLab:[];
+  r.metaDia={...(p.metaDia||{})};
   return r;
 }
+/* Meta diaria de VENTA: meta de utilidad ÷ margen de referencia ÷ días hábiles del mes, redondeada a $100 */
+function calcMetaDia(m,p){
+  const n=diasMes(m).filter(f=>esLaborable(f,p)).length, o={};
+  TIENDAS.forEach(t=>{ o[t] = n && p.margenRef>0 ? Math.round((p.meta[t]||0)/p.margenRef/n/100)*100 : 0; });
+  return o;
+}
+function conMetaDia(m,p){ const c=calcMetaDia(m,p); TIENDAS.forEach(t=>{ if(!(p.metaDia[t]>0)) p.metaDia[t]=c[t]; }); return p; }
 function paramsMes(m){
-  const d=B.meses[m]; if(d && d.params) return normParams(d.params);
+  const d=B.meses[m]; if(d && d.params) return conMetaDia(m,normParams(d.params));
   const prev=Object.keys(B.meses).filter(k=>k<m && B.meses[k].params).sort().pop();
   const p=normParams(prev?B.meses[prev].params:{});
-  p.noLab=[]; // los días no laborables son de cada mes
-  return p;
+  p.noLab=[]; p.metaDia={}; // días no laborables y meta diaria son de cada mes
+  return conMetaDia(m,p);
 }
 const _mesCreando=new Set();
 function asegurarMesBono(m){
-  if(!esDueno() || !B.mesesListo || m<BONO_INICIO || B.meses[m] || _mesCreando.has(m)) return;
+  if(!esDueno() || !B.mesesListo || m<BONO_INICIO || _mesCreando.has(m)) return;
+  const d=B.meses[m];
+  if(d && d.params && !(d.params.metaDia && TIENDAS.every(t=>d.params.metaDia[t]>0))){ // congelar la meta diaria del mes
+    _mesCreando.add(m); db.collection(COL.bonoMeses).doc(m).set({params:{metaDia:paramsMes(m).metaDia}},{merge:true}).catch(()=>_mesCreando.delete(m)); return;
+  }
+  if(d) return;
   _mesCreando.add(m);
   db.collection(COL.bonoMeses).doc(m).set({mes:m, params:paramsMes(m), descuentos:[], condiciones:{}, oficial:{}, cerrado:false, creadoEn:TS()},{merge:true})
     .catch(()=>_mesCreando.delete(m));
@@ -1550,6 +1564,9 @@ function calcBono(m, mdOverride){
     const mg=(x.margen && x.margen>0) ? x.margen : (margenRef||p.margenRef);
     x.ventaDia = rest>0 && mg>0 ? x.falta/rest/mg : 0;
     x.ventaDiaMeta = lab.length && mg>0 ? x.meta/mg/lab.length : 0;
+    x.metaDia = p.metaDia[t]||0;
+    x.esperado = x.metaDia*transc; x.difRitmo = x.venta - x.esperado;   // venta contra lo esperado a la fecha
+    x.proyUtil = transc>0 && rest>0 ? x.ub/transc*lab.length : null;
   });
   return {m,p,md,T,total,ventaT,utilT,margen,margenOk,...b,cada,doble,premio,totalTope,lab,transc,rest,proy,proyBono,cerrado:!!md.cerrado,margenRef};
 }
@@ -1599,7 +1616,7 @@ function revisarAvisosBono(){
   const mia=S.perfil.sucursal;
   const pend=B.avisos.filter(a=>!_avVistos.has(a.id) && !(a.enterados && a.enterados[S.user.uid]) && (!a.sucursal || a.sucursal===mia))
     .sort((a,b)=>(a.creadoEn?.seconds||9e9)-(b.creadoEn?.seconds||9e9));
-  if(!pend.length) return;
+  if(!pend.length){ revisarInicioMes(); return; }
   const a=pend[0]; S.bloqueaModal=true;
   abrirModal(`<h2>📣 ${esc(a.titulo)}</h2><div style="white-space:pre-line;font-size:15px;line-height:1.45">${esc(a.texto)}</div>
     ${a.motivo?`<p class="sub" style="margin:10px 0 0">Motivo: ${esc(a.motivo)}</p>`:''}
@@ -1642,7 +1659,8 @@ function pintarMiniBono(){
   const n=el('miniBono'); if(!n) return;
   if(!esDueno() && !TIENDAS.includes(S.perfil.sucursal)){ n.innerHTML=''; return; }
   const c=calcBono(B.mes); const v = esDueno() ? c.cada+c.premio : c.T[S.perfil.sucursal].bono;
-  const est = c.total<c.minT ? `Faltan ${$0(c.minT-c.total)} para el mínimo` : c.total<c.metaT ? `Faltan ${$0(c.metaT-c.total)} para la meta` : '¡Arriba de la meta!';
+  let est = c.total<c.minT ? `Faltan ${$0(c.minT-c.total)} para el mínimo` : c.total<c.metaT ? `Faltan ${$0(c.metaT-c.total)} para la meta` : '¡Arriba de la meta!';
+  if(!esDueno()){ const x=c.T[S.perfil.sucursal]; est = x.enMeta ? '🏆 Tu tienda está en su meta' : `Tu tienda: ${x.meta?Math.round(x.ub/x.meta*100):0}% de su meta`; }
   n.innerHTML=`<div class="item" id="miniBonoBtn" style="cursor:pointer;border-left:4px solid var(--verde);align-items:center"><span style="font-size:24px">🏆</span>
     <div class="cuerpo"><div class="linea1"><span>Bono estimado${esDueno()?' c/u':''}</span><span class="imp" style="color:var(--verde)">${$0(v)}</span></div><div class="linea2">${est}</div></div><span>›</span></div>`;
   el('miniBonoBtn').onclick=()=>irA('bono');
@@ -1673,11 +1691,118 @@ function renderBono(){
 function pintarBono(conCaptura){
   if(!el('bonoTop')) return;
   const c=calcBono(B.mes), mia=esDueno()?null:S.perfil.sucursal, fr=fraseHoy(c);
-  el('bonoTop').innerHTML = `${fr?`<div class="frase">💬 ${esc(fr)}</div>`:''}${htmlTermo(c)}${esDueno()?htmlTiendasDueno(c):htmlMiTienda(c,mia)}${htmlRitmo(c)}`;
+  el('bonoTop').innerHTML = `${fr?`<div class="frase">💬 ${esc(fr)}</div>`:''}${esDueno()
+    ? htmlTermo(c)+htmlTiendasDueno(c)+htmlRitmo(c)
+    : htmlTermoTienda(c,mia)+htmlSemana(c,mia)+htmlRitmoTienda(c,mia)+htmlGlobalToggle(c,mia)}`;
+  if(el('verGlobal')) el('verGlobal').onchange=e=>{ lsSet('gmp_ver_global',e.target.checked?'1':'0'); pintarBono(false); };
+  if(el('verMetas')) el('verMetas').onclick=()=>modalMetasMes(c,mia);
   if(conCaptura || !B.form._sucio) pintarCapturaBono(c);
   el('bonoBottom').innerHTML = esDueno() ? htmlAccionesDueno(c)+htmlDiasDueno(c) : htmlMisDias(c,mia)+htmlAjustes(mia)+htmlHistorial(mia);
   conectarBottom();
-  celebrarBono(c);
+  if(!revisarInicioMes()) celebrarBono(c);
+}
+
+/* ---------- Vista del encargado: su tienda primero ---------- */
+function htmlTermoTienda(c,t){
+  const x=c.T[t], otra=TIENDAS.find(o=>o!==t);
+  const max=Math.max(x.meta*1.12, x.ub*1.04, 1), pos=v=>Math.max(0,Math.min(100,v/max*100));
+  const color = x.enMeta?'var(--verde)' : x.ub>=x.min?'var(--azul)' : '#9aa3ae';
+  let est;
+  if(x.ub<x.min) est=`Faltan <b>${$0(x.min-x.ub)}</b> de utilidad para el mínimo de tu tienda.`;
+  else if(!x.enMeta) est=`✅ Tu tienda ya pasó su mínimo. Faltan <b>${$0(x.meta-x.ub)}</b> para tu meta.`;
+  else est=`🏆 ¡Tu tienda está en su meta! Lo que sigue se paga al ${pct(c.p.pct2)}.`;
+  let exp;
+  if(!c.margenOk) exp=`<div class="aviso" style="margin:8px 0 0">El margen de las dos tiendas va en ${pct(c.margen)}, abajo del ${pct(c.p.margenMin)}: así no hay bono. Cuiden los descuentos.</div>`;
+  else if(c.total<c.minT) exp=`<div style="font-size:14px;margin-top:6px">El bono empieza cuando <b>las dos tiendas juntas</b> pasan ${$0(c.minT)} de utilidad. Entre las dos faltan <b>${$0(c.minT-c.total)}</b>. ¡Échense la mano!</div>`;
+  else exp=`<div style="font-size:13px;color:var(--gris);margin-top:6px">Se calcula con las dos tiendas juntas y se reparte igual entre los dos encargados.</div>`;
+  const premio = c.doble ? `✅ Incluye ${$0(c.p.premio)} por doble meta.` : x.enMeta ? `Premio de ${$0(c.p.premio)}: tu tienda ya cumplió, falta ${esc(otra)}.` : `+${$0(c.p.premio)} extra si las dos tiendas llegan a su meta.`;
+  return `<div class="tarjeta">
+    <div class="fila" style="align-items:center"><div class="titulo" style="margin:0">Tu tienda · ${esc(t)} · ${nombreMes(c.m)} ${c.cerrado?'<span class="chip aprobado">Cerrado</span>':''}</div>
+      <button class="btn chico sec" id="verMetas" style="flex:none">🎯 Metas</button></div>
+    <div style="font-size:13px;color:var(--gris);margin-top:8px">Utilidad de tu tienda${x.diasEst?' (parte estimada)':''}</div>
+    <div style="font-size:30px;font-weight:800;font-variant-numeric:tabular-nums">${$0(x.ub)} <span style="font-size:15px;color:var(--gris);font-weight:600">de ${$0(x.meta)}</span></div>
+    <div class="termo"><div class="pista"><div class="lleno" style="width:${pos(x.ub)}%;background:${color}"></div></div>
+      <div class="marca" style="left:${pos(x.min)}%"></div><div class="et" style="left:${Math.min(90,Math.max(10,pos(x.min)))}%">Tu mínimo<br><b>${kMil(x.min)}</b></div>
+      <div class="marca" style="left:${pos(x.meta)}%"></div><div class="et arriba" style="left:${Math.min(90,Math.max(10,pos(x.meta)))}%">Tu meta<br><b>${kMil(x.meta)}</b></div>
+    </div>
+    <div style="font-size:14px">${est}</div>
+    ${x.desc?`<div class="sub" style="margin:4px 0 0">Ya descontados ${$0(x.desc)} (ver ajustes del dueño).</div>`:''}
+    <div style="border-top:1px solid var(--borde);margin-top:12px;padding-top:10px">
+      <div style="font-size:13px;color:var(--gris);font-weight:600">Bono estimado para ti</div>
+      <div class="bonoGrande">${$0(x.bono)}</div>
+      ${exp}
+      <div style="font-size:13px;margin-top:6px">${premio}</div>
+      ${!x.condOk?`<div class="aviso" style="margin:10px 0 0;background:var(--rojo-claro);color:var(--rojo)">Este mes no se cumplió una condición${x.condMotivo?': '+esc(x.condMotivo):''}.</div>`:''}
+    </div>
+  </div>`;
+}
+function semanaDe(h,c){
+  const d=new Date(h+'T12:00:00'), dow=d.getDay(), lun=new Date(d); lun.setDate(d.getDate()-(dow===0?6:dow-1));
+  const dias=[]; for(let i=0;i<7;i++){ const x=new Date(lun); x.setDate(lun.getDate()+i); const f=isoDe(x); if(mesDe(f)===c.m && esLaborable(f,c.p)) dias.push(f); }
+  return dias;
+}
+function htmlSemana(c,t){
+  if(c.cerrado || c.m!==mesDe(hoy())) return '';
+  const x=c.T[t], h=hoy(), dias=semanaDe(h,c), vs=B.ventas.filter(v=>v.sucursal===t);
+  if(!dias.length || !x.metaDia) return '';
+  const meta=x.metaDia*dias.length, lleva=vs.filter(v=>dias.includes(v.fecha)).reduce((s,v)=>s+(v.venta||0),0), pc=Math.min(100,lleva/meta*100);
+  const hv=vs.find(v=>v.fecha===h);
+  const hoyTxt = !esLaborable(h,c.p) ? 'Hoy no es día hábil.'
+    : hv ? (hv.venta>=x.metaDia ? `✅ Hoy vendiste <b>${$0(hv.venta)}</b>: ¡meta del día cumplida!` : `Hoy vendiste <b>${$0(hv.venta)}</b> de ${$0(x.metaDia)}.`)
+    : `Hoy tu meta es vender <b>${$0(x.metaDia)}</b>. Captúrala al cerrar.`;
+  const rango=`${+dias[0].slice(8)} al ${+dias[dias.length-1].slice(8)} de ${MESES[+c.m.slice(5)-1]}`;
+  return `<div class="tarjeta"><div class="titulo" style="margin-top:0">Tu meta de esta semana · ${rango}</div>
+    <div class="resumen" style="margin:0 0 6px"><span>Llevas</span><b>${$0(lleva)} <span style="font-size:14px;color:var(--gris);font-weight:600">de ${$0(meta)}</span></b></div>
+    <div class="barraT"><div style="width:${pc}%;background:${lleva>=meta?'var(--verde)':'var(--azul)'}"></div></div>
+    <div style="font-size:14px;margin-top:8px">${lleva>=meta?'✅ ¡Meta de la semana cumplida!':`Faltan <b>${$0(meta-lleva)}</b> para la meta de la semana (${dias.length} día${dias.length===1?'':'s'} hábil${dias.length===1?'':'es'} × ${$0(x.metaDia)}).`}</div>
+    <div style="font-size:14px;margin-top:6px">${hoyTxt}</div>
+  </div>`;
+}
+function htmlRitmoTienda(c,t){
+  if(c.cerrado || c.m!==mesDe(hoy())) return '';
+  const x=c.T[t]; let txt;
+  if(!c.transc) txt='Todavía no hay ventas capturadas este mes.';
+  else if(x.difRitmo>=0) txt=`💪 Vas <b>${$0(x.difRitmo)}</b> arriba de lo esperado a la fecha (${c.transc} días hábiles × ${$0(x.metaDia)}). ¡Sigue así!`;
+  else {
+    const falta=-x.difRitmo, extra=c.rest>0?falta/c.rest:0;
+    if(!c.rest) txt=`Último día hábil: faltan ${$0(falta)} para lo esperado del mes.`;
+    else if(extra<=x.metaDia*0.5) txt=`Vas ${$0(falta)} abajo de lo esperado a la fecha. Si vendes <b>${$0(extra)} más por día</b> los ${c.rest} días que quedan, te emparejas.`;
+    else txt=`Vas ${$0(falta)} abajo de lo esperado a la fecha. Un buen pedido de obra o una semana fuerte te empareja. ¡Todavía hay ${c.rest} días hábiles!`;
+  }
+  const mg = x.margen==null ? '' : `<div style="font-size:14px;margin-top:8px">Tu margen del mes: <b>${pct(x.margen)}</b> ${x.margen>=c.p.margenMin?'✓':`⚠️ abajo del ${pct(c.p.margenMin)}: vender con descuento no ayuda al bono.`}</div>`;
+  return `<div class="tarjeta"><div class="titulo" style="margin-top:0">¿Vas al ritmo?</div><div style="font-size:14px;line-height:1.45">${txt}</div>${mg}
+    <div class="sub" style="margin:8px 0 0">Las ventas a crédito cuentan para el bono cuando se cobran.</div></div>`;
+}
+function htmlGlobalToggle(c,t){
+  const on=lsGet('gmp_ver_global')==='1', otra=TIENDAS.find(o=>o!==t), y=c.T[otra];
+  return `<div class="tarjeta"><div style="font-size:14px">${esc(otra)}: ${y.enMeta?'✅ en su meta':'⏳ aún no llega a su meta'}</div>
+    <label class="check" style="margin-top:10px"><input type="checkbox" id="verGlobal" ${on?'checked':''}> Ver las dos tiendas juntas</label></div>
+    ${on?htmlTermo(c)+htmlRitmo(c):''}`;
+}
+function modalMetasMes(c,t){
+  const x=c.T[t], p=c.p;
+  abrirModal(`<div style="text-align:center;font-size:44px;line-height:1">🎯</div><h2 style="text-align:center">Metas de ${nombreMes(c.m)}</h2>
+    <div class="titulo" style="margin-top:12px">Tu tienda · ${esc(t)}</div>
+    <table class="tabla">
+      <tr><td>Vender cada día</td><td class="n"><b>${$0(x.metaDia)}</b></td></tr>
+      <tr><td>Vender por semana (6 días)</td><td class="n"><b>${$0(x.metaDia*6)}</b></td></tr>
+      <tr><td>Mínimo del mes (utilidad)</td><td class="n">${$0(x.min)}</td></tr>
+      <tr><td>Meta del mes (utilidad)</td><td class="n"><b>${$0(x.meta)}</b></td></tr></table>
+    <div class="titulo" style="margin-top:12px">Las dos tiendas juntas</div>
+    <table class="tabla">
+      <tr><td>Mínimo: aquí empieza el bono</td><td class="n">${$0(c.minT)}</td></tr>
+      <tr><td>Meta</td><td class="n"><b>${$0(c.metaT)}</b></td></tr></table>
+    <p style="font-size:14px;line-height:1.45">Del mínimo a la meta se paga ${pct(p.pct1)}; arriba de la meta, ${pct(p.pct2)}. La bolsa se reparte igual entre los dos encargados, hasta ${$0(p.tope)} cada uno, más ${$0(p.premio)} si las dos tiendas llegan a su meta.</p>
+    <p class="sub" style="margin:0">${c.lab.length} días hábiles este mes.</p>
+    <div class="frase" style="margin:12px 0 0">💬 ${esc(fraseDe('dia','metas'+c.m))}</div>
+    <button class="btn verde" id="metOk">¡Vamos!</button>`);
+  el('metOk').onclick=cerrarModal;
+}
+function revisarInicioMes(){
+  if(!S.perfil || esDueno() || S.bloqueaModal || !TIENDAS.includes(S.perfil.sucursal) || !el('fondoModal').classList.contains('oculto')) return false;
+  const m=mesDe(hoy()); if(!B.mesesListo || !B.meses[m] || B.mes!==m) return false;
+  const k=`gmp_metas_${S.user.uid}_${m}`; if(lsGet(k)) return false;
+  lsSet(k,'1'); modalMetasMes(calcBono(m),S.perfil.sucursal); return true;
 }
 function selectorMesBono(){
   const ms=[]; let m=BONO_INICIO; const cur=mesDe(hoy());
@@ -1736,7 +1861,9 @@ function htmlTiendasDueno(c){
     ${f('Para el bono',x=>'<b>'+$0(x.ub)+'</b>')}
     ${f('Meta',x=>$0(x.meta))}
     ${f('Avance',x=>(x.meta?Math.round(x.ub/x.meta*100):0)+'%'+(x.enMeta?' ✅':''))}
-    ${f('Venta diaria para meta',x=>x.enMeta?'—':$0(x.ventaDia))}
+    ${f('Meta diaria (venta)',x=>$0(x.metaDia))}
+    ${f('Vs. lo esperado a hoy',x=>c.transc?`<span style="color:${x.difRitmo>=0?'var(--verde)':'var(--rojo)'}">${x.difRitmo>=0?'+':'−'}${$0(Math.abs(x.difRitmo))}</span>`:'—')}
+    ${f('Para emparejarse (por día)',x=>x.enMeta?'—':$0(x.ventaDia))}
     ${f('Condiciones',x=>x.condOk?'✓':'<span style="color:var(--rojo)">No</span>')}
     <tr class="total"><td>Bono encargado</td>${TIENDAS.map(t=>`<td class="n" style="color:var(--verde)">${$0(c.T[t].bono)}</td>`).join('')}</tr></table>
     <div class="sub" style="margin:8px 0 0">Margen combinado ${pct(c.margen)} ${c.margenOk?'✓':'✗'} (mínimo ${pct(c.p.margenMin)}) · Bolsa ${$0(c.bolsa)} · Tramo 10%: ${$0(c.t1)} · Tramo 12%: ${$0(c.t2)}</div>
@@ -1904,7 +2031,8 @@ function difParams(a,b){
   const l=[], ch=(et,x,y,f)=>{ if(JSON.stringify(x)!==JSON.stringify(y)) l.push(`${et}: ${f(x)} → ${f(y)}`); };
   TIENDAS.forEach(t=>{ ch('Mínimo '+t,a.min[t],b.min[t],$0); ch('Meta '+t,a.meta[t],b.meta[t],$0); ch('Utilidad estimada '+t,!!a.utilEstimada[t],!!b.utilEstimada[t],x=>x?'sí':'no'); });
   ch('Del mínimo a la meta',a.pct1,b.pct1,pct); ch('Arriba de la meta',a.pct2,b.pct2,pct); ch('Margen mínimo',a.margenMin,b.margenMin,pct);
-  ch('Margen de respaldo',a.margenRef,b.margenRef,pct); ch('Premio doble meta',a.premio,b.premio,$0); ch('Tope por persona',a.tope,b.tope,$0);
+  ch('Margen de referencia',a.margenRef,b.margenRef,pct); ch('Premio doble meta',a.premio,b.premio,$0); ch('Tope por persona',a.tope,b.tope,$0);
+  TIENDAS.forEach(t=>ch('Meta diaria de venta '+t,a.metaDia[t]||0,b.metaDia[t]||0,$0));
   ch('Domingos laborables',!!a.domingos,!!b.domingos,x=>x?'sí':'no');
   ch('Días no laborables',a.noLab||[],b.noLab||[],x=>x.length?x.map(f=>+f.slice(8)).join(', '):'ninguno');
   return l;
@@ -1915,11 +2043,12 @@ function modalParamsBono(){
   abrirModal(`<h2>Parámetros · ${nombreMes(m)}</h2>
     <p class="sub">El mínimo es tu punto de equilibrio: la utilidad bruta que cubre todos los gastos (incluido tu sueldo).</p>
     ${TIENDAS.map((t,i)=>`<div class="titulo">${esc(t)}</div><div class="fila"><div><label>Mínimo</label>${n('pMin'+i,p.min[t])}</div><div><label>Meta</label>${n('pMeta'+i,p.meta[t])}</div></div>
+      <label>Meta diaria de venta (fija todo el mes)</label>${n('pDia'+i,p.metaDia[t])}
       <label class="check"><input type="checkbox" id="pEst${i}" ${p.utilEstimada[t]?'checked':''}> Utilidad estimada con el margen de la otra tienda</label>`).join('')}
     <div class="titulo" style="margin-top:16px">Porcentajes y montos</div>
     <div class="fila"><div><label>Del mínimo a la meta (%)</label>${n('pP1',r2(p.pct1*100))}</div><div><label>Arriba de la meta (%)</label>${n('pP2',r2(p.pct2*100))}</div></div>
-    <div class="fila"><div><label>Margen mínimo (%)</label>${n('pMg',r2(p.margenMin*100))}</div><div><label>Margen de respaldo (%)</label>${n('pMr',r2(p.margenRef*100))}</div></div>
-    <p class="sub" style="margin:4px 0 0">El margen de respaldo se usa para estimar mientras la tienda de referencia no tenga ventas capturadas.</p>
+    <div class="fila"><div><label>Margen mínimo (%)</label>${n('pMg',r2(p.margenMin*100))}</div><div><label>Margen de referencia (%)</label>${n('pMr',r2(p.margenRef*100))}</div></div>
+    <p class="sub" style="margin:4px 0 0">El margen de referencia también calcula la meta diaria de venta: meta ÷ margen ÷ días hábiles. Si cambias la meta y no tocas la meta diaria, se recalcula sola.</p>
     <div class="fila"><div><label>Premio doble meta</label>${n('pPr',p.premio)}</div><div><label>Tope por persona</label>${n('pTo',p.tope)}</div></div>
     <div class="titulo" style="margin-top:16px">Días</div>
     <label class="check"><input type="checkbox" id="pDom" ${p.domingos?'checked':''}> Los domingos se trabaja</label>
@@ -1944,9 +2073,18 @@ function modalParamsBono(){
     if([np.pct1,np.pct2,np.margenMin,np.margenRef,np.premio,np.tope].some(x=>!(x>=0))) return e.textContent='Revisa porcentajes y montos.';
     if(!(np.pct1>0)||!(np.pct2>0)) return e.textContent='Los porcentajes del bono deben ser mayores que 0.';
     np.domingos=el('pDom').checked;
+    np.metaDia={};
     const nd=diasMes(destino).length, dias=el('pNoLab').value.split(/[,\s]+/).filter(Boolean).map(Number);
     if(dias.some(d=>!(d>=1&&d<=nd))) return e.textContent=`Días no laborables: números del 1 al ${nd}.`;
     np.noLab=[...new Set(dias)].sort((a,b)=>a-b).map(d=>`${destino}-${String(d).padStart(2,'0')}`);
+    { const pa=paramsMes(destino), auto=calcMetaDia(destino,{...np,metaDia:{}});
+      for(const [i,t] of TIENDAS.entries()){ const v=num('pDia'+i);
+        if(!(v>=0)) return e.textContent=`Revisa la meta diaria de ${t}.`;
+        const mostrado=paramsMes(m).metaDia[t], editada = v!==mostrado;   // el campo muestra la meta diaria de este mes
+        const metaCambio = np.meta[t]!==pa.meta[t] || np.margenRef!==pa.margenRef;
+        if(editada) np.metaDia[t]=v;                                   // la escribiste tú: se respeta
+        else if(destino!==m || metaCambio) np.metaDia[t]=auto[t];      // otro mes o cambió la meta: se recalcula
+        else np.metaDia[t]=pa.metaDia[t]; } }
     const hora=el('pHora').value||'19:00';
     if(hora!==(B.conf.hora||'19:00')) db.collection(COL.bonoConf).doc('general').set({hora},{merge:true}).catch(err=>toast(errorTexto(err)));
     const cambios=difParams(paramsMes(destino),np), mot=el('pMot').value.trim();
